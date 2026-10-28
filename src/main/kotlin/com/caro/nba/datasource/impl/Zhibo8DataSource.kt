@@ -1,9 +1,15 @@
 package com.caro.nba.datasource.impl
 
+import com.caro.nba.datasource.DataSource
 import com.caro.nba.datasource.DataSourceCommon
+import com.caro.nba.datasource.GameDetailDataSource
 import com.caro.nba.datasource.ScoreDataSource
+import com.caro.nba.model.GameDetail
 import com.caro.nba.model.NBAGame
 import com.caro.nba.model.NBAScoreboard
+import com.caro.nba.model.PlayByPlay
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import okhttp3.Request
 import java.time.LocalDate
@@ -24,7 +30,8 @@ import java.time.format.DateTimeFormatter
  * 注意：
  * - 接口日期为北京时间；NBA 比赛发生在美国东部晚间，对应北京时间为次日，
  *   因此查询美东日期 D 时需请求 D 和 D+1 两天，再按比赛开始时间精确过滤
- * - 该源仅支持比分/赛程，不支持排名、季后赛对阵图和比赛详情
+ * - 该源支持比分/赛程、比赛详情（含完整中文技术统计）与中文图文直播，
+ *   不支持排名和季后赛对阵图
  */
 class Zhibo8ScoreDataSource : ScoreDataSource {
     private val client = DataSourceCommon.client
@@ -218,5 +225,529 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
         } catch (e: Exception) {
             null
         }
+    }
+}
+
+/**
+ * 直播吧文字转播数据源（中文图文直播）
+ *
+ * 链路（2026-10-28 实测，逆自直播间页面 JS bk2016_v2.v5.js）：
+ * 1. max_sid: https://{server}.qiumibao.com/livetext/data/cache/livetext/{saishi_id}/0/max_sid.json
+ *             -> {"max_sid":N,...}；非 JSON 响应（404 页面）视为直播间未建立。
+ *             域名双活（dingshi145 / dingshi4pc），由页面 JS 下发，按序尝试互为容错
+ * 2. 分块:    .../livetext/{saishi_id}/0/page_10/{ceil(sid/10)*10}.htm -> JSON 数组（10 条/块）
+ *             注意 per_num=10 的路径无 lit_ 前缀（页面 JS 既有写法）
+ *
+ * saishi_id 即 Zhibo8ScoreDataSource 返回的 gameId（比分列表 id 字段），链路内自洽。
+ * 完赛/历史比赛数据长期保留（实测前一天全量可取），仅未开赛比赛可能 404。
+ */
+class Zhibo8PlayByPlayDataSource : GameDetailDataSource {
+    private val client = DataSourceCommon.client
+    private val gson = DataSourceCommon.gson
+
+    companion object {
+        /** 直播间静态缓存域名（页面 JS server_name，2026-10 实测双活） */
+        private val LIVE_HOSTS = listOf("dingshi145.qiumibao.com", "dingshi4pc.qiumibao.com")
+
+        /** 每块消息条数（page_10 固定 10 条/块） */
+        private const val BLOCK_SIZE = 10
+
+        /** 单次最多拉取块数：150 条解说，更早的内容需翻页加载（v1 不做） */
+        private const val MAX_BLOCKS = 15
+    }
+
+    override fun getGameDetail(gameId: String): Result<GameDetail> {
+        // 详情由 Zhibo8GameDetailDataSource 提供（见 gameDetailDataSources 工厂）
+        return Result.failure(Exception("直播吧：该实现仅提供文字转播"))
+    }
+
+    override fun getPlayByPlay(gameId: String, homeTeamId: String, awayTeamId: String): Result<PlayByPlay> {
+        return try {
+            val maxSid = fetchMaxSid(gameId)
+                ?: return fail("直播吧：该比赛暂无图文直播（未开赛或直播间未建立）")
+            DataSourceCommon.debugLog("直播吧直播: saishi_id=$gameId max_sid=$maxSid")
+
+            val messages = fetchMessages(gameId, maxSid)
+            if (messages.isEmpty()) {
+                return fail("直播吧：该比赛暂无图文直播内容")
+            }
+
+            Result.success(PlayByPlay(gameId, buildPlays(messages)))
+        } catch (e: Exception) {
+            DataSourceCommon.debugLog("直播吧文字转播异常: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 查询直播间最新消息序号；所有域名均失败返回 null
+     */
+    private fun fetchMaxSid(saishiId: String): Int? {
+        for (host in LIVE_HOSTS) {
+            val json = fetchJson<JsonObject>(host, "livetext/data/cache/livetext/$saishiId/0/max_sid.json") ?: continue
+            val sid = json.get("max_sid")?.takeIf { it.isJsonPrimitive }?.asInt ?: continue
+            if (sid > 0) return sid
+        }
+        return null
+    }
+
+    /**
+     * 从最新块向前拉取消息分块（页码按 ceil(sid/10)*10 对齐），404 即停
+     */
+    private fun fetchMessages(saishiId: String, maxSid: Int): List<JsonObject> {
+        val topBlock = ((maxSid + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE
+        val messages = mutableListOf<JsonObject>()
+
+        for (host in LIVE_HOSTS) {
+            messages.clear()
+            var missing = 0
+            // 块号按 ceil(sid/10)*10 对齐，每次递减一个块（10 条）
+            for (block in topBlock downTo BLOCK_SIZE step BLOCK_SIZE) {
+                if (missing >= 2) break  // 连续 2 块缺失视为已到数据头部
+                if (messages.size / BLOCK_SIZE >= MAX_BLOCKS) break
+
+                val arr = fetchJson<JsonArray>(host, "livetext/data/cache/livetext/$saishiId/0/page_10/$block.htm")
+                if (arr == null) {
+                    missing++
+                    continue
+                }
+                missing = 0
+                arr.forEach { e ->
+                    if (e.isJsonObject) messages.add(e.asJsonObject)
+                }
+            }
+            if (messages.isNotEmpty()) {
+                DataSourceCommon.debugLog("直播吧直播: 拉取 ${messages.size} 条消息($host)")
+                return messages
+            }
+            // 该域名整链失败，换下一个域名重拉
+        }
+        return messages
+    }
+
+    /**
+     * 消息列表（任意顺序）-> 按 live_sid 升序的 Play 列表，含节次继承与得分标记
+     */
+    private fun buildPlays(messages: List<JsonObject>): List<PlayByPlay.Play> {
+        val sorted = messages.sortedBy { it.get("live_sid")?.takeIf { e -> e.isJsonPrimitive }?.asInt ?: 0 }
+
+        var prevVisit = -1
+        var prevHome = -1
+        var lastPeriod = 0
+        val plays = mutableListOf<PlayByPlay.Play>()
+
+        for (msg in sorted) {
+            val text = msg.get("live_text")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
+            val periodDisplay = msg.get("pid_text")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
+            if (text.isEmpty() && periodDisplay.isEmpty()) continue
+
+            // 节数：pid_text="第N节"直接取；加时记 5；其余（比赛结束/中场等）继承上一条，保持分组连续
+            val periodFromPid = Regex("""第(\d+)节""").find(periodDisplay)?.groupValues?.get(1)?.toIntOrNull()
+            val period = when {
+                periodFromPid != null -> periodFromPid
+                periodDisplay.contains("加时") -> 5
+                else -> lastPeriod
+            }
+            lastPeriod = period
+
+            val visit = msg.get("visit_score")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
+            val home = msg.get("home_score")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
+            // 比分相对上一条消息增长视为得分事件（直播吧消息本身无得分标记字段）
+            val scoring = (prevVisit in 0..visit && prevHome in 0..home) && (visit > prevVisit || home > prevHome)
+            prevVisit = visit
+            prevHome = home
+
+            plays.add(
+                PlayByPlay.Play(
+                    id = msg.get("live_id")?.takeIf { it.isJsonPrimitive }?.asString ?: "",
+                    sequenceNumber = msg.get("live_sid")?.takeIf { it.isJsonPrimitive }?.asString ?: "",
+                    text = text.ifEmpty { periodDisplay },
+                    shortText = text.take(20),
+                    clock = msg.get("live_time")?.takeIf { it.isJsonPrimitive }?.asString
+                        ?.takeIf { it.length >= 16 }?.substring(11, 16) ?: "",
+                    period = period,
+                    periodDisplay = periodDisplay.ifEmpty { "图文直播" },
+                    teamId = "",
+                    teamName = "",
+                    awayScore = visit,
+                    homeScore = home,
+                    isScoringPlay = scoring,
+                    scoreValue = 0,
+                    isShootingPlay = false,
+                    playType = msg.get("user_chn")?.takeIf { it.isJsonPrimitive }?.asString ?: "",  // 解说主播昵称
+                    participants = emptyList()
+                )
+            )
+        }
+        return plays
+    }
+
+    /**
+     * GET 直播间静态缓存并解析为 JSON，失败（HTTP 非 200 / 非法 JSON / 类型不符）返回 null。
+     * max_sid.json 为对象、消息分块为数组，用泛型区分。
+     */
+    private inline fun <reified T : JsonElement> fetchJson(host: String, path: String): T? {
+        return try {
+            val request = Request.Builder()
+                .url("https://$host/$path")
+                .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+                .header("Referer", "https://www.zhibo8.com/")
+                .header("Accept", "*/*")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                // 404 等场景返回 nginx HTML 页，gson 解析失败即视为无数据
+                gson.fromJson<JsonElement>(body, JsonElement::class.java) as? T
+            }
+        } catch (e: Exception) {
+            DataSourceCommon.debugLog("直播吧直播请求异常($host/$path): ${e.message}")
+            null
+        }
+    }
+
+    private fun fail(message: String): Result<PlayByPlay> {
+        DataSourceCommon.debugLog("直播吧文字转播: $message")
+        return Result.failure(Exception(message))
+    }
+}
+
+/**
+ * 直播吧比赛详情数据源（中文，含完整球员技术统计）
+ *
+ * 链路（2026-10-28 实测，逆自比赛页 www.zhibo8.com/zhibo/nba/{y}/match{id}v.htm?redirect=shuju
+ * 的「数据」tab 与 bk2016_v2.v5.js 的 get_match_data）：
+ * 1. 元数据: https://s.qiumibao.com/json/match/{id}.htm
+ *            -> match_date（北京日期）、home_id/visit_id、home_team/visit_team（中文队名）
+ * 2. 比分:   https://bifen4pc2.qiumibao.com/json/{match_date}/v2/{id}.htm
+ *            -> state(1未开始/2进行中/3完赛)、period_cn、left/right{score, scores[8] 每节比分}
+ * 3. 统计:   https://dc4pc.qiumibao.com/dc/matchs/data/{match_date}/player_{id}.htm
+ *            -> data.host/guest{team_id, team_name_cn, on[]{minutes, field/three/free(命中-出手),
+ *               off/def/off+def 篮板, ass/ste/blo/turn/fouls, points, plusMinus,
+ *               shirt_number, position, player_logo, redirect_url}}
+ *
+ * 注意：v2 的 left/right 与统计的 host/guest 均为「页面展示位」（实测 host=左侧=客队），
+ * 与主客队的对应关系必须以元数据 home_id/visit_id 按 team_id 匹配，不能按字段名直接取。
+ */
+class Zhibo8GameDetailDataSource : GameDetailDataSource {
+    private val client = DataSourceCommon.client
+    private val gson = DataSourceCommon.gson
+
+    override fun getGameDetail(gameId: String): Result<GameDetail> {
+        return try {
+            // 1. 元数据（主客队 id/中文队名，是左右展示位映射回主客队的基准）
+            val meta = fetchJsonObject("https://s.qiumibao.com/json/match/$gameId.htm")
+                ?: return fail("直播吧：比赛元数据获取失败 (id=$gameId)")
+            val matchDate = meta.get("match_date")?.takeIf { it.isJsonPrimitive }?.asString
+                ?: return fail("直播吧：比赛元数据缺 match_date")
+            val homeId = meta.get("home_id")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            val visitId = meta.get("visit_id")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            val homeName = DataSourceCommon.normalizeChineseTeamName(
+                meta.get("home_team")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            )
+            val visitName = DataSourceCommon.normalizeChineseTeamName(
+                meta.get("visit_team")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            )
+
+            // 2. 比分/状态（未开赛时 v2 可能无数据，detail 出壳、统计为空即可）
+            val v2 = fetchJsonObject("https://bifen4pc2.qiumibao.com/json/$matchDate/v2/$gameId.htm")
+            val state = v2?.get("state")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            val status = when (state) {
+                "2" -> "in_progress"
+                "3" -> "finished"
+                else -> "scheduled"
+            }
+            val periodCn = v2?.get("period_cn")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
+            val periodMatch = Regex("""第(\d+)节""").find(periodCn)
+            var period = when {
+                periodMatch != null -> periodMatch.groupValues[1].toIntOrNull() ?: 0
+                periodCn.contains("加时") -> 5
+                else -> 0
+            }
+            val clock = periodCn.split("\n").getOrNull(1)?.trim() ?: ""
+
+            // left/right 按 team_id 对号入座；元数据 id 缺失时按实测惯例 right=主队
+            val left = v2?.getAsJsonObject("left")
+            val right = v2?.getAsJsonObject("right")
+            fun sideId(side: JsonObject?): String =
+                side?.get("id")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            val homeSide = when {
+                homeId.isNotBlank() && sideId(left) == homeId -> left
+                homeId.isNotBlank() && sideId(right) == homeId -> right
+                else -> right
+            }
+            val visitSide = if (homeSide === left) right else left
+
+            fun quarterStats(side: JsonObject?): Map<String, String> {
+                val arr = side?.getAsJsonArray("scores") ?: return emptyMap()
+                val map = mutableMapOf<String, String>()
+                arr.forEachIndexed { i, e ->
+                    val v = e.takeIf { it.isJsonPrimitive }?.asString ?: return@forEachIndexed
+                    // "0" 多为未打的节（加时位），不展示
+                    if (v.isNotBlank() && v != "0") {
+                        map[if (i < 4) "第${i + 1}节" else "加时${i - 3}"] = v
+                    }
+                }
+                return map
+            }
+            fun scoreOf(side: JsonObject?): Int =
+                side?.get("score")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
+
+            fun buildTeam(name: String, teamId: String, side: JsonObject?, stats: Map<String, String>): GameDetail.TeamDetail {
+                val abbr = DataSourceCommon.chineseNameToAbbr[name] ?: ""
+                return GameDetail.TeamDetail(
+                    id = teamId,
+                    name = name,
+                    abbreviation = abbr,
+                    logo = DataSourceCommon.espnTeamLogo(abbr),
+                    score = scoreOf(side),
+                    statistics = stats
+                )
+            }
+
+            // 3. 球员技术统计（host/guest 同样按 team_id 匹配；缺 id 时按实测惯例 host=客队）
+            val playerRoot = fetchJsonObject(
+                "https://dc4pc.qiumibao.com/dc/matchs/data/$matchDate/player_$gameId.htm"
+            )
+            val statData = playerRoot?.getAsJsonObject("data")
+            val hostStats = statData?.getAsJsonObject("host")
+            val guestStats = statData?.getAsJsonObject("guest")
+            fun teamIdOf(side: JsonObject?): String =
+                side?.get("team_id")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+
+            val awayStatSide: JsonObject?
+            val homeStatSide: JsonObject?
+            when {
+                homeId.isNotBlank() && teamIdOf(hostStats) == homeId -> {
+                    homeStatSide = hostStats; awayStatSide = guestStats
+                }
+                homeId.isNotBlank() && teamIdOf(guestStats) == homeId -> {
+                    homeStatSide = guestStats; awayStatSide = hostStats
+                }
+                else -> { awayStatSide = hostStats; homeStatSide = guestStats }  // 实测 host=客队
+            }
+
+            fun parsePlayer(p: JsonObject): GameDetail.Player {
+                fun str(k: String) = p.get(k)?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+                fun splitPair(k: String): Pair<String, String> {
+                    val parts = str(k).split("-")
+                    return (parts.getOrNull(0) ?: "0") to (parts.getOrNull(1) ?: "0")
+                }
+                val (fgMade, fgAtt) = splitPair("field")
+                val (threeMade, threeAtt) = splitPair("three")
+                val (ftMade, ftAtt) = splitPair("free")
+                // position 字段赛后会变成「首发」标记（网页上的首发高亮），真实位置在 pos；
+                // 两者都取真实位置语义，替补两者皆空
+                val posRaw = str("pos")
+                val positionRaw = str("position")
+                val position = when {
+                    posRaw.isNotBlank() && posRaw != "首发" -> posRaw
+                    positionRaw.isNotBlank() && positionRaw != "首发" -> positionRaw
+                    else -> ""
+                }
+                return GameDetail.Player(
+                    id = str("player_id"),
+                    name = str("player_name_cn"),
+                    jersey = str("shirt_number"),
+                    position = position,
+                    minutes = str("minutes"),
+                    points = str("points"),
+                    rebounds = str("off+def"),
+                    offensiveRebounds = str("off"),
+                    defensiveRebounds = str("def"),
+                    assists = str("ass"),
+                    steals = str("ste"),
+                    blocks = str("blo"),
+                    turnovers = str("turn"),
+                    fouls = str("fouls"),
+                    fgMade = fgMade, fgAttempts = fgAtt,
+                    threeMade = threeMade, threeAttempts = threeAtt,
+                    ftMade = ftMade, ftAttempts = ftAtt,
+                    plusMinus = str("plusMinus"),
+                    headshot = str("player_logo"),
+                    playerUrl = str("redirect_url")
+                )
+            }
+            fun playersOf(side: JsonObject?): List<GameDetail.Player> {
+                val on = side?.getAsJsonArray("on") ?: return emptyList()
+                return on.mapNotNull { if (it.isJsonObject) parsePlayer(it.asJsonObject) else null }
+            }
+
+            // 球队总计行（total 各字段与球员同构；数据为空/全 "-" 时不出行，如未开赛）
+            fun parseTotals(t: JsonObject?): GameDetail.Player? {
+                t ?: return null
+                fun str(k: String) = t.get(k)?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+                fun splitPair(k: String): Pair<String, String> {
+                    val parts = str(k).split("-")
+                    return (parts.getOrNull(0) ?: "") to (parts.getOrNull(1) ?: "")
+                }
+                if (str("points").isBlank() || str("points") == "-") return null
+                val (fgMade, fgAtt) = splitPair("field")
+                val (threeMade, threeAtt) = splitPair("three")
+                val (ftMade, ftAtt) = splitPair("free")
+                return GameDetail.Player(
+                    id = "",
+                    name = "总计",
+                    jersey = "",
+                    position = "",
+                    minutes = str("minutes").ifBlank { "-" },
+                    points = str("points"),
+                    rebounds = str("off+def"),
+                    offensiveRebounds = str("off"),
+                    defensiveRebounds = str("def"),
+                    assists = str("ass"),
+                    steals = str("ste"),
+                    blocks = str("blo"),
+                    turnovers = str("turn"),
+                    fouls = str("fouls"),
+                    fgMade = fgMade, fgAttempts = fgAtt,
+                    threeMade = threeMade, threeAttempts = threeAtt,
+                    ftMade = ftMade, ftAttempts = ftAtt,
+                    plusMinus = str("plusMinus")
+                )
+            }
+
+            val detail = GameDetail(
+                gameId = gameId,
+                status = status,
+                clock = if (status == "in_progress") clock else "",
+                period = period,
+                homeTeam = buildTeam(homeName, homeId, homeSide, quarterStats(homeSide)),
+                awayTeam = buildTeam(visitName, visitId, visitSide, quarterStats(visitSide)),
+                players = if (statData != null) GameDetail.PlayerStats(
+                    homePlayers = playersOf(homeStatSide),
+                    awayPlayers = playersOf(awayStatSide),
+                    homeTotals = parseTotals(homeStatSide?.getAsJsonObject("total")),
+                    awayTotals = parseTotals(awayStatSide?.getAsJsonObject("total"))
+                ) else null
+            )
+            DataSourceCommon.debugLog(
+                "直播吧详情解析成功: ${visitName} @ ${homeName} (${detail.awayTeam.score}-${detail.homeTeam.score}), " +
+                        "球员 ${detail.players?.homePlayers?.size ?: 0}+${detail.players?.awayPlayers?.size ?: 0}"
+            )
+            Result.success(detail)
+        } catch (e: Exception) {
+            DataSourceCommon.debugLog("直播吧详情异常: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    override fun getPlayByPlay(gameId: String, homeTeamId: String, awayTeamId: String): Result<PlayByPlay> {
+        // 文字转播由 Zhibo8PlayByPlayDataSource 提供
+        return Result.failure(Exception("直播吧：该实现仅提供比赛详情"))
+    }
+
+    /**
+     * GET 纯 JSON 接口并解析为 JsonObject，失败（HTTP 非 200 / 非法 JSON）返回 null
+     */
+    private fun fetchJsonObject(url: String): JsonObject? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+                .header("Referer", "https://www.zhibo8.com/")
+                .header("Accept", "application/json, text/plain, */*")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    DataSourceCommon.debugLog("直播吧详情 HTTP ${response.code}: $url")
+                    return null
+                }
+                val body = response.body?.string() ?: return null
+                gson.fromJson(body, JsonObject::class.java)
+            }
+        } catch (e: Exception) {
+            DataSourceCommon.debugLog("直播吧详情请求异常($url): ${e.message}")
+            null
+        }
+    }
+
+    private fun fail(message: String): Result<GameDetail> {
+        DataSourceCommon.debugLog("直播吧详情: $message")
+        return Result.failure(Exception(message))
+    }
+}
+
+/**
+ * 按「美东日期 + 两队缩写」反查直播吧 saishi_id（跨源自 ESPN eventId 用），失败返回 null
+ */
+internal fun findZhibo8Id(easternDate: LocalDate, homeAbbr: String, awayAbbr: String): String? {
+    return try {
+        val home = DataSourceCommon.abbrToChineseName[homeAbbr.uppercase()] ?: return null
+        val away = DataSourceCommon.abbrToChineseName[awayAbbr.uppercase()] ?: return null
+        val targets = setOf(home, away)
+
+        // 直播吧按北京日期组织比赛：美东日期 D 的比赛位于北京日期 D 与 D+1（北京时间上午场）
+        val candidates = (fetchNbaList(easternDate) + fetchNbaList(easternDate.plusDays(1)))
+            .filter { zhibo8ToEasternDate(it.start) == easternDate }
+
+        DataSourceCommon.debugLog("直播吧反查: 美东$easternDate 候选 ${candidates.size} 场, 目标=$away@$home")
+        candidates.firstOrNull { game ->
+            setOf(
+                DataSourceCommon.normalizeChineseTeamName(game.homeTeam),
+                DataSourceCommon.normalizeChineseTeamName(game.awayTeam)
+            ) == targets
+        }?.id
+    } catch (e: Exception) {
+        DataSourceCommon.debugLog("直播吧反查异常: ${e.message}")
+        null
+    }
+}
+
+/** 反查用轻量比赛条目 */
+private data class Zhibo8ListEntry(val id: String, val homeTeam: String, val awayTeam: String, val start: String)
+
+/**
+ * 请求直播吧某北京日期列表并返回其中的 NBA 比赛条目（leagueid=924 精确过滤）
+ */
+private fun fetchNbaList(beijingDate: LocalDate): List<Zhibo8ListEntry> {
+    return try {
+        val dateStr = beijingDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        val request = Request.Builder()
+            .url("https://bifen.qiumibao.com/json/$dateStr/list.htm")
+            .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+            .header("Referer", "https://www.zhibo8.com/")
+            .header("Accept", "application/json, text/plain, */*")
+            .build()
+
+        val client = DataSourceCommon.client
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return emptyList()
+            val body = response.body?.string() ?: return emptyList()
+            val root = DataSourceCommon.gson.fromJson(body, JsonObject::class.java)
+            val list = root.getAsJsonArray("list") ?: return emptyList()
+
+            list.mapNotNull { element ->
+                val game = element.asJsonObject
+                if (game.get("type")?.asString != "basketball") return@mapNotNull null
+                if (game.get("leagueid")?.asString != "924") return@mapNotNull null
+                val id = game.get("id")?.asString ?: return@mapNotNull null
+                Zhibo8ListEntry(
+                    id = id,
+                    homeTeam = game.get("home_team")?.asString ?: "",
+                    awayTeam = game.get("visit_team")?.asString ?: "",
+                    start = game.get("start")?.asString ?: ""
+                )
+            }
+        }
+    } catch (e: Exception) {
+        DataSourceCommon.debugLog("直播吧反查列表请求失败($beijingDate): ${e.message}")
+        emptyList()
+    }
+}
+
+/**
+ * 北京时间字符串 -> 美东日期（文件级，供反查使用）
+ */
+private fun zhibo8ToEasternDate(beijingStart: String): LocalDate? {
+    return try {
+        val ldt = LocalDateTime.parse(beijingStart, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        ldt.atZone(ZoneId.of("Asia/Shanghai"))
+            .withZoneSameInstant(ZoneId.of("America/New_York"))
+            .toLocalDate()
+    } catch (e: Exception) {
+        null
     }
 }

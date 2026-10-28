@@ -50,7 +50,7 @@ enum class DataSource(
         supportsStandings = true,
         supportsPlayoffs = false,
         supportsGameDetail = true,
-        supportsPlayByPlay = true,
+        supportsPlayByPlay = false,  // 免费版无 play-by-play 端点
         requiresApiKey = true
     ),
     SPORTS_DB(
@@ -76,11 +76,12 @@ enum class DataSource(
     ZHIBO8(
         id = "zhibo8",
         displayName = "直播吧",
-        description = "直播吧中文比分数据（zhibo8.com），国内访问快，中文队名，仅比分赛程",
+        description = "直播吧中文数据（zhibo8.com），国内访问快，中文队名，含比赛详情（中文技术统计）与中文图文直播",
         supportsScores = true,
         supportsStandings = false,
         supportsPlayoffs = false,
-        supportsGameDetail = false,
+        supportsGameDetail = true,
+        supportsPlayByPlay = true,
         requiresApiKey = false
     ),
     SINA(

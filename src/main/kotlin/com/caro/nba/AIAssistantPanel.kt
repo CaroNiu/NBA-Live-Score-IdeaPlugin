@@ -339,6 +339,8 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var ballDontLieApiKey: String = ""
     /** TheSportsDB API Key（可选，默认使用公共 Key "3"） */
     var sportsDbApiKey: String = ""
+    /** 文字转播来源偏好（auto / zhibo8 / sina / espn），由文字转播对话框的下拉维护 */
+    var playByPlaySource: String = "auto"
 
     // ===== AI 助手配置 =====
     var apiUrl: String = ""
@@ -360,6 +362,7 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.dataSource = state.dataSource
         this.ballDontLieApiKey = state.ballDontLieApiKey
         this.sportsDbApiKey = state.sportsDbApiKey
+        this.playByPlaySource = state.playByPlaySource
         this.apiUrl = state.apiUrl
         this.apiKey = state.apiKey
         this.model = state.model

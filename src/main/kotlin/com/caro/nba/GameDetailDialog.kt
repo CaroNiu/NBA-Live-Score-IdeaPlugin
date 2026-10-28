@@ -1,5 +1,6 @@
 package com.caro.nba
 
+import com.caro.nba.datasource.DataSource
 import com.caro.nba.model.GameDetail
 import com.caro.nba.service.GameDetailService
 import com.caro.nba.service.GameRef
@@ -46,7 +47,7 @@ class GameDetailDialog(
 
     override fun createCenterPanel(): JComponent? {
         mainPanel = JPanel(BorderLayout())
-        mainPanel?.preferredSize = Dimension(750, 600)
+        mainPanel?.preferredSize = Dimension(880, 620)
 
         // 加载中提示
         loadingLabel = JLabel("正在加载比赛详情...", SwingConstants.CENTER).apply {
@@ -58,10 +59,10 @@ class GameDetailDialog(
         // 后台线程加载数据
         Thread {
             try {
-                val result = service.getGameDetail(gameId, gameRef)
+                val (result, actualSource) = service.getGameDetail(gameId, gameRef)
                 result.fold(
                     onSuccess = { detail ->
-                        SwingUtilities.invokeLater { showGameDetail(detail) }
+                        SwingUtilities.invokeLater { showGameDetail(detail, actualSource) }
                     },
                     onFailure = { error ->
                         SwingUtilities.invokeLater { showError(friendlyError(error.message)) }
@@ -113,7 +114,7 @@ class GameDetailDialog(
         }
     }
 
-    private fun showGameDetail(detail: GameDetail) {
+    private fun showGameDetail(detail: GameDetail, actualSource: DataSource) {
         currentStatus = detail.status  // 存储当前比赛状态
         
         mainPanel?.removeAll()
@@ -130,9 +131,16 @@ class GameDetailDialog(
         if (detail.players != null) {
             addPlayerStatsSection(detail)
         } else {
-            // 新浪 boxscore 不含球员统计，给出说明避免用户疑惑
-            contentPanel?.add(JLabel("<html><div style='padding: 10px; text-align: center;'>"
-                    + "当前数据源（新浪）不提供球员统计数据，<br>如需球员数据请在比分面板切换到 ESPN 数据源后重新打开。</div></html>").apply {
+            // 中文源 boxscore 不含球员统计；若走了跨源反查，说明实际数据来路避免「选直播吧却提示新浪」的困惑
+            val idSource = gameRef?.idSource
+            val hint = if (idSource != null && idSource != actualSource) {
+                "所选数据源（${idSource.displayName}）不提供比赛详情，<br>以上比分来自 ${actualSource.displayName} 的反查数据，不含球员统计。<br>" +
+                        "如需球员数据请在比分面板切换到 ESPN 数据源后重新打开。"
+            } else {
+                "当前数据源（${actualSource.displayName}）不提供球员统计数据，<br>" +
+                        "如需球员数据请在比分面板切换到 ESPN 数据源后重新打开。"
+            }
+            contentPanel?.add(JLabel("<html><div style='padding: 10px; text-align: center;'>$hint</div></html>").apply {
                 font = font.deriveFont(12f)
                 foreground = JBColor.GRAY
                 alignmentX = Component.CENTER_ALIGNMENT
@@ -158,7 +166,7 @@ class GameDetailDialog(
             )
 //            maximumSize = Dimension(Int.MAX_VALUE, 120)
             // 移除最大高度限制，让面板根据内容自适应
-            preferredSize = Dimension(700, 160)
+            preferredSize = Dimension(840, 160)
         }
 
         // 比分显示
@@ -166,8 +174,8 @@ class GameDetailDialog(
             border = JBUI.Borders.empty(10)
         }
 
-        // 客队
-        scorePanel.add(JLabel(detail.awayTeam.name).apply {
+        // 客队（detail 队名缺失时用比分列表传入的队名兜底）
+        scorePanel.add(JLabel(detail.awayTeam.name.ifBlank { awayTeamName }).apply {
             font = font.deriveFont(Font.BOLD, 14f)
             horizontalAlignment = SwingConstants.CENTER
         })
@@ -176,7 +184,7 @@ class GameDetailDialog(
             foreground = JBColor.GRAY
             horizontalAlignment = SwingConstants.CENTER
         })
-        scorePanel.add(JLabel(detail.homeTeam.name).apply {
+        scorePanel.add(JLabel(detail.homeTeam.name.ifBlank { homeTeamName }).apply {
             font = font.deriveFont(Font.BOLD, 14f)
             horizontalAlignment = SwingConstants.CENTER
         })
@@ -224,47 +232,74 @@ class GameDetailDialog(
 
         // 客队球员表格
         if (players.awayPlayers.isNotEmpty()) {
-            val awayPanel = createTeamPlayersPanel(detail.awayTeam.name, players.awayPlayers)
+            val awayPanel = createTeamPlayersPanel(detail.awayTeam.name, players.awayPlayers, players.awayTotals)
             contentPanel?.add(awayPanel)
             contentPanel?.add(Box.createVerticalStrut(15))
         }
 
         // 主队球员表格
         if (players.homePlayers.isNotEmpty()) {
-            val homePanel = createTeamPlayersPanel(detail.homeTeam.name, players.homePlayers)
+            val homePanel = createTeamPlayersPanel(detail.homeTeam.name, players.homePlayers, players.homeTotals)
             contentPanel?.add(homePanel)
         }
     }
 
-    private fun createTeamPlayersPanel(teamName: String, players: List<GameDetail.Player>): JPanel {
+    private fun createTeamPlayersPanel(teamName: String, players: List<GameDetail.Player>, totals: GameDetail.Player?): JPanel {
         val panel = JPanel(BorderLayout()).apply {
             border = BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(JBColor.border()),
                 "$teamName 球员数据"
             )
-            maximumSize = Dimension(Int.MAX_VALUE, 300)
+            maximumSize = Dimension(Int.MAX_VALUE, 400)
         }
 
-        // 表格列：球员、得分、篮板、助攻、+/-、投篮
-        val columnNames = arrayOf("球员", "得分", "篮板", "助攻", "+/-", "投篮", "三分", "罚球")
+        // 表格列：与直播吧数据页一致，不缩减
+        val columnNames = arrayOf(
+            "球员", "位置", "出场时间", "投篮", "三分", "罚球",
+            "前篮板", "后篮板", "总篮板", "助攻", "抢断", "盖帽", "失误", "犯规", "+/-", "得分"
+        )
         val model = object : DefaultTableModel(columnNames, 0) {
             override fun isCellEditable(row: Int, column: Int) = false
         }
 
         players.forEach { player ->
-            val shooting = "${player.fgMade}/${player.fgAttempts}"
-            val three = "${player.threeMade}/${player.threeAttempts}"
-            val ft = "${player.ftMade}/${player.ftAttempts}"
-
             model.addRow(arrayOf(
                 "${player.name} (#${player.jersey})",
-                player.points,
+                player.position,
+                player.minutes,
+                "${player.fgMade}-${player.fgAttempts}",
+                "${player.threeMade}-${player.threeAttempts}",
+                "${player.ftMade}-${player.ftAttempts}",
+                player.offensiveRebounds.ifBlank { "-" },
+                player.defensiveRebounds.ifBlank { "-" },
                 player.rebounds,
                 player.assists,
+                player.steals,
+                player.blocks,
+                player.turnovers,
+                player.fouls.ifBlank { "-" },
                 player.plusMinus,
-                shooting,
-                three,
-                ft
+                player.points
+            ))
+        }
+
+        // 球队总计行（直播吧提供；ESPN 无则不出）
+        if (totals != null) {
+            model.addRow(arrayOf(
+                "总计", "", totals.minutes,
+                "${totals.fgMade}-${totals.fgAttempts}",
+                "${totals.threeMade}-${totals.threeAttempts}",
+                "${totals.ftMade}-${totals.ftAttempts}",
+                totals.offensiveRebounds.ifBlank { "-" },
+                totals.defensiveRebounds.ifBlank { "-" },
+                totals.rebounds,
+                totals.assists,
+                totals.steals,
+                totals.blocks,
+                totals.turnovers,
+                totals.fouls.ifBlank { "-" },
+                totals.plusMinus,
+                totals.points
             ))
         }
 
@@ -273,15 +308,11 @@ class GameDetailDialog(
             font = font.deriveFont(12f)
             setGridColor(JBColor.border())
 
-            // 设置列宽
-            columnModel.getColumn(0).preferredWidth = 150  // 球员
-            columnModel.getColumn(1).preferredWidth = 50   // 得分
-            columnModel.getColumn(2).preferredWidth = 50   // 篮板
-            columnModel.getColumn(3).preferredWidth = 50   // 助攻
-            columnModel.getColumn(4).preferredWidth = 50   // +/-
-            columnModel.getColumn(5).preferredWidth = 60   // 投篮
-            columnModel.getColumn(6).preferredWidth = 50   // 三分
-            columnModel.getColumn(7).preferredWidth = 50   // 罚球
+            // 列宽：球员列稍宽，其余紧凑
+            val widths = intArrayOf(120, 48, 64, 62, 56, 56, 48, 48, 48, 42, 42, 42, 42, 42, 44, 46)
+            for (i in widths.indices) {
+                columnModel.getColumn(i).preferredWidth = widths[i]
+            }
 
             // 居中对齐数字列
             val centerRenderer = DefaultTableCellRenderer().apply {
@@ -303,7 +334,7 @@ class GameDetailDialog(
                 }
             }
 
-            // 点击球员名称打开详情
+            // 点击球员名称打开详情（总计行不在 players 范围内，自动排除）
             addMouseListener(object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
                     val row = rowAtPoint(e.point)
@@ -317,7 +348,7 @@ class GameDetailDialog(
         }
 
         val scrollPane = JScrollPane(table).apply {
-            preferredSize = Dimension(700, (players.size * 25 + 30).coerceAtMost(280))
+            preferredSize = Dimension(840, ((players.size + 1) * 25 + 30).coerceAtMost(300))
         }
 
         panel.add(scrollPane, BorderLayout.CENTER)
@@ -382,8 +413,7 @@ class GameDetailDialog(
     private fun friendlyError(message: String?): String {
         val msg = message ?: "加载失败"
         return if (msg.contains("所有数据源均失败")) {
-            "无法获取比赛详情。<br>新浪源未收录该比赛，且 ESPN 反查 eventId 也失败" +
-                    "（当前网络可能无法访问 ESPN）。"
+            "无法获取比赛详情。<br>中文源未收录该场比赛的详情数据，<br>且 ESPN 反查也失败（当前网络可能无法访问 ESPN）。"
         } else {
             msg
         }
