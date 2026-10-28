@@ -65,6 +65,11 @@ object DataSourceCommon {
         )
     }
 
+    /** NBA 球队缩写 -> 中文名（chineseNameToAbbr 的反向视图，供跨源反查按队名匹配） */
+    val abbrToChineseName: Map<String, String> by lazy {
+        chineseNameToAbbr.entries.associate { (cn, abbr) -> abbr to cn }
+    }
+
     /** 中文队名别名 -> 标准中文名（不同中文数据源叫法差异） */
     val chineseTeamAliases: Map<String, String> by lazy {
         mapOf(

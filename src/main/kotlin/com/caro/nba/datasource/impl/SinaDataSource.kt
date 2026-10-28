@@ -273,6 +273,13 @@ class SinaPlayByPlayDataSource : GameDetailDataSource {
             }
             val box = data.asJsonObject
 
+            // 新浪对无效 mid 返回 code=0 但 data 为空壳（mid/队名全空），
+            // 必须判空失败以走降级/反查链，否则脏数据会污染上层状态判断
+            val boxMid = box.get("mid")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+            if (boxMid.isBlank()) {
+                return fail("新浪：无该比赛详情 (空数据)")
+            }
+
             val statusEn = box.get("status_en")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
             val status = when (statusEn) {
                 "inprogress", "halftime" -> "in_progress"
@@ -452,5 +459,89 @@ class SinaPlayByPlayDataSource : GameDetailDataSource {
     private fun <T> fail(message: String): Result<T> {
         DataSourceCommon.debugLog("新浪文字转播: $message")
         return Result.failure(Exception(message))
+    }
+}
+
+/**
+ * 按「美东日期 + 两队缩写」反查新浪 mid（跨源自 ESPN eventId 用），失败返回 null
+ *
+ * 复用按日赛程接口：slamdunk.../schedule&a=day&date={北京日期}，result.data.matchs[] 含 mid/date/time/队名
+ */
+internal fun findSinaMid(easternDate: LocalDate, homeAbbr: String, awayAbbr: String): String? {
+    return try {
+        val home = DataSourceCommon.abbrToChineseName[homeAbbr.uppercase()] ?: return null
+        val away = DataSourceCommon.abbrToChineseName[awayAbbr.uppercase()] ?: return null
+        val targets = setOf(home, away)
+
+        // 新浪按北京日期组织比赛：美东日期 D 的比赛位于北京日期 D 与 D+1
+        val matchs = (fetchSinaDayMatchs(easternDate) + fetchSinaDayMatchs(easternDate.plusDays(1)))
+            .filter { sinaToEasternDate(it.start) == easternDate }
+
+        DataSourceCommon.debugLog("新浪反查: 美东$easternDate 候选 ${matchs.size} 场, 目标=$away@$home")
+        matchs.firstOrNull { entry ->
+            setOf(
+                DataSourceCommon.normalizeChineseTeamName(entry.homeName),
+                DataSourceCommon.normalizeChineseTeamName(entry.awayName)
+            ) == targets
+        }?.mid
+    } catch (e: Exception) {
+        DataSourceCommon.debugLog("新浪反查异常: ${e.message}")
+        null
+    }
+}
+
+/** 反查用轻量比赛条目：(北京开始时间 "yyyy-MM-dd HH:mm", mid, 主队名, 客队名) */
+private data class SinaMatchEntry(val start: String, val mid: String, val homeName: String, val awayName: String)
+
+/**
+ * 请求新浪某北京日期的 NBA 比赛条目列表，失败返回空列表
+ */
+private fun fetchSinaDayMatchs(beijingDate: LocalDate): List<SinaMatchEntry> {
+    return try {
+        val dateStr = beijingDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        val url = "https://slamdunk.sports.sina.com.cn/api?p=radar&s=schedule&a=day&date=$dateStr&callback=dayCallback"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+            .header("Referer", "https://sports.sina.com.cn/")
+            .header("Accept", "*/*")
+            .build()
+
+        val client = DataSourceCommon.client
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return emptyList()
+            val body = response.body?.string() ?: return emptyList()
+            val json = unwrapJsonp(body)?.let { DataSourceCommon.gson.fromJson(it, JsonObject::class.java) }
+                ?: return emptyList()
+            val matchs = json.getAsJsonObject("result")?.getAsJsonObject("data")?.getAsJsonArray("matchs")
+                ?: return emptyList()
+
+            matchs.mapNotNull { element ->
+                val match = element.asJsonObject
+                val mid = match.get("mid")?.asString ?: return@mapNotNull null
+                val date = match.get("date")?.asString ?: ""
+                val time = match.get("time")?.asString ?: ""
+                val homeName = match.getAsJsonObject("home")?.get("name")?.asString ?: ""
+                val awayName = match.getAsJsonObject("away")?.get("name")?.asString ?: ""
+                SinaMatchEntry("$date $time", mid, homeName, awayName)
+            }
+        }
+    } catch (e: Exception) {
+        DataSourceCommon.debugLog("新浪反查列表请求失败($beijingDate): ${e.message}")
+        emptyList()
+    }
+}
+
+/**
+ * 北京时间字符串 -> 美东日期（文件级，供反查使用）
+ */
+private fun sinaToEasternDate(beijingStart: String): LocalDate? {
+    return try {
+        val ldt = LocalDateTime.parse(beijingStart.trim(), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        ldt.atZone(ZoneId.of("Asia/Shanghai"))
+            .withZoneSameInstant(ZoneId.of("America/New_York"))
+            .toLocalDate()
+    } catch (e: Exception) {
+        null
     }
 }

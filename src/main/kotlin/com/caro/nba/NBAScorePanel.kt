@@ -36,6 +36,9 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
     // 当前选择的日期（用户本地时区显示，但API查询时转换为美东时间）
     private var selectedDate = LocalDate.now()
 
+    // 比分列表实际使用的数据源（gameId 的归属源，供详情/文字转播跨源反查）
+    private var currentGamesSource: DataSource = DataSource.fromId(NBASettingsState.getInstance().dataSource)
+
     // 子面板
     private val gamesPanel = JPanel()
     private var standingsPanel: StandingsPanel? = null
@@ -325,6 +328,7 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
             val queryDate = toEasternDate(selectedDate)
             DataSourceCommon.debugLog("加载比分: 本地日期=$selectedDate -> 美东查询日期=$queryDate")
             val (result, source) = service.getGamesWithSource(queryDate)
+            currentGamesSource = source
 
             DataSourceCommon.debugLog(
                 result.fold(
@@ -498,9 +502,14 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
      * 显示比赛详情
      */
     private fun showGameDetail(game: NBAGame) {
-        // 中文数据源的 gameId 与 ESPN 不通用，附上「美东日期+队名缩写」供详情/文字转播反查 ESPN eventId
+        // 各数据源 gameId 不通用，附上「归属源+美东日期+队名缩写」供详情/文字转播跨源反查
         val gameRef = if (game.homeTeam.abbreviation.isNotBlank() && game.awayTeam.abbreviation.isNotBlank()) {
-            GameRef(toEasternDate(selectedDate), game.homeTeam.abbreviation, game.awayTeam.abbreviation)
+            GameRef(
+                toEasternDate(selectedDate),
+                game.homeTeam.abbreviation,
+                game.awayTeam.abbreviation,
+                currentGamesSource
+            )
         } else {
             null
         }

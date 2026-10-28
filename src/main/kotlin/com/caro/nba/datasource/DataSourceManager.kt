@@ -10,6 +10,8 @@ import com.caro.nba.datasource.impl.NbaComScoreDataSource
 import com.caro.nba.datasource.impl.NbaComStandingsDataSource
 import com.caro.nba.datasource.impl.TheSportsDbScoreDataSource
 import com.caro.nba.datasource.impl.TheSportsDbStandingsDataSource
+import com.caro.nba.datasource.impl.Zhibo8GameDetailDataSource
+import com.caro.nba.datasource.impl.Zhibo8PlayByPlayDataSource
 import com.caro.nba.datasource.impl.Zhibo8ScoreDataSource
 import com.caro.nba.datasource.impl.SinaScoreDataSource
 import com.caro.nba.datasource.impl.SinaPlayByPlayDataSource
@@ -39,7 +41,8 @@ import java.time.LocalDate
 class DataSourceManager(
     private val primarySource: DataSource = DataSource.ESPN,
     private val ballDontLieApiKey: String = "",
-    private val sportsDbApiKey: String = "3"  // TheSportsDB 免费公共 Key
+    private val sportsDbApiKey: String = "3",  // TheSportsDB 免费公共 Key
+    private val playByPlaySourceOverride: DataSource? = null  // 文字转播手动指定源（null=自动，中文优先）
 ) {
     // fallback 优先级：中文源前置（国内网络访问海外源普遍受限）。
     // 腾讯不在此列表：h5sports.match.qq.com 域名已注销（2026-09 实测三家 DNS 均 NXDOMAIN），接口彻底下线
@@ -90,11 +93,34 @@ class DataSourceManager(
                 }
                 DataSource.SPORTS_DB -> null
                 DataSource.TENCENT -> null  // 接口域名已注销，见 fallbackPriority 注释
-                DataSource.ZHIBO8 -> null  // 直播吧无比赛详情接口
+                // 直播吧：比赛详情（比分/每节比分/完整中文技术统计）
+                DataSource.ZHIBO8 -> Zhibo8GameDetailDataSource()
                 // 新浪：boxscore 详情（比分/每节比分）+ 中文文字转播；无球员统计
                 DataSource.SINA -> SinaPlayByPlayDataSource()
             }
         }
+    }
+
+    /**
+     * 文字转播专用链：与主数据源/公共优先级解耦（看直播的诉求是语言优先，比分诉求是稳定优先）
+     * - 自动（override=null）：中文优先，直播吧在前（历史比赛可用且 gameId 与比分列表同源零反查）
+     * - 手动（override!=null）：仅指定源，失败不降级（"手动"的语义）
+     */
+    private val playByPlayDataSources: List<Pair<DataSource, GameDetailDataSource>> by lazy {
+        if (playByPlaySourceOverride != null) {
+            buildPlayByPlayImpl(playByPlaySourceOverride)
+                ?.let { listOf(playByPlaySourceOverride to it) } ?: emptyList()
+        } else {
+            listOf(DataSource.ZHIBO8, DataSource.SINA, DataSource.ESPN)
+                .mapNotNull { source -> buildPlayByPlayImpl(source)?.let { source to it } }
+        }
+    }
+
+    private fun buildPlayByPlayImpl(source: DataSource): GameDetailDataSource? = when (source) {
+        DataSource.ZHIBO8 -> Zhibo8PlayByPlayDataSource()
+        DataSource.SINA -> SinaPlayByPlayDataSource()
+        DataSource.ESPN -> EspnGameDetailDataSource()
+        else -> null  // 其余源无文字转播能力（BallDontLie 免费版不支持，见 DataSource 枚举）
     }
 
     private val playoffDataSources: List<Pair<DataSource, PlayoffDataSource>> by lazy {
@@ -156,11 +182,10 @@ class DataSourceManager(
     }
 
     /**
-     * 获取文字转播（带自动 fallback）
+     * 获取文字转播（文字转播专用链，见 playByPlayDataSources 注释）
      */
     fun getPlayByPlay(gameId: String, homeTeamId: String, awayTeamId: String): Pair<Result<PlayByPlay>, DataSource> {
-        // 文字转播与比赛详情的支持面不同（如新浪只有文字转播），用独立标志过滤
-        return executeWithFallback(gameDetailDataSources, { it.supportsPlayByPlay }) {
+        return executeWithFallback(playByPlayDataSources, { it.supportsPlayByPlay }) {
             it.getPlayByPlay(gameId, homeTeamId, awayTeamId)
         }
     }

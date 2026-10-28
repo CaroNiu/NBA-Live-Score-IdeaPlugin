@@ -41,7 +41,10 @@ data class GameDetail(
 
     data class PlayerStats(
         val homePlayers: List<Player>,
-        val awayPlayers: List<Player>
+        val awayPlayers: List<Player>,
+        /** 球队总计行（直播吧提供，ESPN 无；null 不展示） */
+        val homeTotals: Player? = null,
+        val awayTotals: Player? = null
     )
 
     data class Player(
@@ -52,10 +55,13 @@ data class GameDetail(
         val minutes: String = "0",
         val points: String = "0",
         val rebounds: String = "0",
+        val offensiveRebounds: String = "",  // 前篮板（直播吧提供，ESPN 无，空则表格显示 -）
+        val defensiveRebounds: String = "",  // 后篮板
         val assists: String = "0",
         val steals: String = "0",
         val blocks: String = "0",
         val turnovers: String = "0",
+        val fouls: String = "",              // 犯规（直播吧提供）
         val fgMade: String = "0",
         val fgAttempts: String = "0",
         val threeMade: String = "0",
