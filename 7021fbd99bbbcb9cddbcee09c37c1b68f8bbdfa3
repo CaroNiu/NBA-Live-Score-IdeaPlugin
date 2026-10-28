@@ -1,0 +1,58 @@
+src/main/kotlin/com/caro/nba/datasource/impl/Zhibo8DataSource.kt
+  be6a0df5a778d18e 3,5,7,10-12,33-34,230-753
+src/main/kotlin/com/caro/nba/GameDetailDialog.kt
+  be6a0df5a778d18e 3,50,62,65,117,134-143,169,177-178,187,235,242,247,253,256-260,268-274,277-280,282-284,286-302,311-315,337,351,416
+src/main/kotlin/com/caro/nba/datasource/impl/SinaDataSource.kt
+  be6a0df5a778d18e 276-282,464-547
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 39-40,331,505,507-512
+src/main/kotlin/com/caro/nba/PlayByPlayPanel.kt
+  be6a0df5a778d18e 3,12-16,23-25,35,39-41,43,46-58,62-80,94,96,98,101-110,113-120,132,134-137,142-146,171-183,186-192,196,198-199,201,203,206-209,212-223,228-230,233-253,255,257-258,267,279-286,297-305,324,327-333,337-340,347,360,363-369,372,375-385,398-403,410,412,417-418,423,426,428,430-435,437,442,446-447,451-455
+src/main/kotlin/com/caro/nba/service/GameDetailService.kt
+  be6a0df5a778d18e 7-8,20-23,28-29,41-42,44-46,48-59,61-62,64-65,83-88,90,93-95,98-118,120,122-139,143-145,148,152
+src/main/kotlin/com/caro/nba/model/GameDetail.kt
+  be6a0df5a778d18e 44-47,58-59,64
+src/main/kotlin/com/caro/nba/datasource/DataSourceManager.kt
+  be6a0df5a778d18e 13-14,44-45,96-97,104-125,185,188
+src/main/kotlin/com/caro/nba/datasource/DataSourceCommon.kt
+  be6a0df5a778d18e 68-72
+build.gradle.kts
+  be6a0df5a778d18e 11,38
+src/main/kotlin/com/caro/nba/datasource/DataSource.kt
+  be6a0df5a778d18e 53,79,83-84
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 44-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "7021fbd99bbbcb9cddbcee09c37c1b68f8bbdfa3",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 3172,
+      "total_deletions": 2179,
+      "accepted_lines": 2435,
+      "overriden_lines": 45
+    },
+    "d022ad590b190cbc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "019347b6-b13b-4320-883b-9599e9c09b5b",
+        "model": "doubao-seed-2-1-turbo-260628"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
