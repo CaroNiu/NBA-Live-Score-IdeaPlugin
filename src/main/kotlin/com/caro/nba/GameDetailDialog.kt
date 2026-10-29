@@ -21,6 +21,8 @@ import javax.swing.table.DefaultTableModel
  * 比赛详情对话框 - 展示球员统计数据
  *
  * @param gameRef 比赛引用信息：中文数据源的 gameId 与 ESPN 不通用，用于失败时反查 ESPN eventId
+ * @param onOpenPlayByPlay 点「文字转播」时的回调（参数为详情加载后的最新比赛状态），
+ *                          由比分面板提供——固定到工具窗口「📺 直播」标签页实时观看并关闭本对话框
  */
 class GameDetailDialog(
     private val project: Project,
@@ -29,7 +31,8 @@ class GameDetailDialog(
     private val awayTeamName: String,
     private val homeTeamId: String = "",
     private val awayTeamId: String = "",
-    private val gameRef: GameRef? = null
+    private val gameRef: GameRef? = null,
+    private val onOpenPlayByPlay: ((status: String) -> Unit)? = null
 ) : DialogWrapper(project) {
 
     private val service = GameDetailService()
@@ -76,42 +79,15 @@ class GameDetailDialog(
         return mainPanel
     }
 
-    // 添加文字转播按钮
+    // 文字转播按钮：固定到工具窗口「📺 直播」标签页实时观看，并关闭本详情
     override fun createActions(): Array<Action> {
         val playByPlayAction = object : AbstractAction("📺 文字转播") {
             override fun actionPerformed(e: ActionEvent?) {
-                println("DEBUG: 文字转播按钮被点击！gameId=$gameId, status=$currentStatus")
-                showPlayByPlay()
+                onOpenPlayByPlay?.invoke(currentStatus)
+                close(OK_EXIT_CODE)
             }
         }
         return arrayOf(playByPlayAction, okAction)
-    }
-
-    private fun showPlayByPlay() {
-        // 在EDT上执行对话框显示
-        SwingUtilities.invokeLater {
-            try {
-                val dialog = PlayByPlayPanel(
-                    project,
-                    gameId,
-                    homeTeamName,
-                    awayTeamName,
-                    homeTeamId,
-                    awayTeamId,
-                    currentStatus,
-                    gameRef
-                )
-                dialog.show()
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-                JOptionPane.showMessageDialog(
-                    mainPanel, 
-                    "打开文字转播失败: ${ex.message}", 
-                    "错误", 
-                    JOptionPane.ERROR_MESSAGE
-                )
-            }
-        }
     }
 
     private fun showGameDetail(detail: GameDetail, actualSource: DataSource) {
