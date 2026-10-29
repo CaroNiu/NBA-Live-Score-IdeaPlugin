@@ -1,0 +1,48 @@
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 44-52
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 29-31,33-36,493,499-518,521,527-528,530-531,541-546,554-558
+src/main/kotlin/com/caro/nba/GameDetailDialog.kt
+  be6a0df5a778d18e 24-25,34-35,82,86-87
+src/main/kotlin/com/caro/nba/datasource/impl/Zhibo8DataSource.kt
+  be6a0df5a778d18e 73-87,90,402-404,406,657-659,664
+build.gradle.kts
+  be6a0df5a778d18e 11,38
+src/main/kotlin/com/caro/nba/PlayByPlayPanel.kt
+  be6a0df5a778d18e 22-27,37,50-52,70-72,87-88,90-94,96,135-144,160,166,173,223-224,240-244,246-247,251-253,255,258,263-265,272-276,292-293,343-344,346-351,419,437-439,466-468,471-476
+src/main/kotlin/com/caro/nba/NBAScoreToolWindowFactory.kt
+  be6a0df5a778d18e 3-4,6,11-13,15,24,27,38-39,43-46,48-50,54-57,59-60,68,73,103-106,110-124,127-156,164-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "fe094dbbac04f36c1e5ae07fefe89a0e394c3df9",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 2794,
+      "total_deletions": 2679,
+      "accepted_lines": 1426,
+      "overriden_lines": 0
+    },
+    "d022ad590b190cbc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "019347b6-b13b-4320-883b-9599e9c09b5b",
+        "model": "doubao-seed-2-1-turbo-260628"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
