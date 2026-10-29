@@ -70,13 +70,24 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
             }
             DataSourceCommon.debugLog("直播吧 美东日期精确匹配: ${etMatched.size} 场")
 
-            val games = when {
-                etMatched.isNotEmpty() -> etMatched
-                sameDay.getOrDefault(emptyList()).isNotEmpty() -> sameDay.getOrDefault(emptyList())
-                else -> nextDay.getOrDefault(emptyList())
+            // 只采信美东日期精确匹配。不要用「当天/次日列表兜底」——精确匹配为空时
+            // 兜底会返回北京日期对得上但美东日期错位的比赛
+            // （如查美东 10-29 却返回美东 10-28 已打完的场次，UI 表现为"切日期查的还是今天的比赛"）
+            if (etMatched.isEmpty()) {
+                val easternToday = LocalDate.now(ZoneId.of("America/New_York"))
+                if (!date.isBefore(easternToday)) {
+                    // 直播吧按北京日期归档且只发布已开始的赛程：美东当天晚场（北京次日早上开打）
+                    // 与未来日期的 NBA 条目不在任何列表中。返回失败放行降级链（ESPN 等有完整赛程）
+                    val failure: Result<NBAScoreboard> = Result.failure(
+                        Exception("直播吧：该日期无赛程数据")
+                    )
+                    return failure
+                }
+                // 历史日期精确匹配为空 = 确实没有比赛，正常返回空列表
+                return Result.success(NBAScoreboard(date.toString(), emptyList()))
             }
 
-            Result.success(NBAScoreboard(date.toString(), games))
+            Result.success(NBAScoreboard(date.toString(), etMatched))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -388,8 +399,11 @@ class Zhibo8PlayByPlayDataSource : GameDetailDataSource {
      */
     private inline fun <reified T : JsonElement> fetchJson(host: String, path: String): T? {
         return try {
+            // max_sid/分块都是固定 URL 的滚动更新内容，CDN 有缓存；
+            // 不带随机参数轮询会持续命中缓存拿到旧直播（官方页面用 ?time=Math.random() 规避）
+            val url = "https://$host/$path?_=${System.nanoTime()}"
             val request = Request.Builder()
-                .url("https://$host/$path")
+                .url(url)
                 .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
                 .header("Referer", "https://www.zhibo8.com/")
                 .header("Accept", "*/*")
@@ -640,11 +654,14 @@ class Zhibo8GameDetailDataSource : GameDetailDataSource {
 
     /**
      * GET 纯 JSON 接口并解析为 JsonObject，失败（HTTP 非 200 / 非法 JSON）返回 null
+     *
+     * 统一追加随机参数绕过 CDN 缓存：v2 比分等接口为固定 URL 的滚动更新内容，
+     * 缓存会导致详情比分滞后（官方页面同类接口均带 ?get=Math.random()）
      */
     private fun fetchJsonObject(url: String): JsonObject? {
         return try {
             val request = Request.Builder()
-                .url(url)
+                .url("$url?_=${System.nanoTime()}")
                 .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
                 .header("Referer", "https://www.zhibo8.com/")
                 .header("Accept", "application/json, text/plain, */*")

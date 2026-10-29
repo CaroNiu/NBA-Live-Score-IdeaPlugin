@@ -26,8 +26,14 @@ import javax.swing.*
 
 /**
  * NBA 比分面板 - 主 UI（包含比分和排名Tab）
+ *
+ * @param onPlayByPlayClick 用户请求固定观看某场比赛的文字直播（参数：比赛、状态快照、跨源反查引用），
+ *                          由 NBAScoreMainPanel 提供并切到「📺 直播」标签页
  */
-class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
+class NBAScorePanel(
+    private val project: Project,
+    private val onPlayByPlayClick: ((game: NBAGame, status: String, ref: GameRef?) -> Unit)? = null
+) : JPanel(BorderLayout()) {
 
     private val service = NBADataService()
     private var refreshJob: Job? = null
@@ -484,26 +490,45 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
         }
         scorePanel.add(homeScoreLabel, gbc)
         
-        // 详情提示
+        // 底部操作条：左「📺 直播」（固定到直播标签页实时观看），右「点击查看详情」
         val detailHint = JLabel("点击查看详情 ›").apply {
             font = font.deriveFont(10f)
             foreground = JBColor.GRAY
             horizontalAlignment = SwingConstants.RIGHT
         }
-        
+
+        val liveLink = JLabel("📺 直播").apply {
+            font = font.deriveFont(Font.BOLD, 10f)
+            foreground = JBColor(0x0066CC, 0x4A9EFF)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                    // 消费事件，避免冒泡触发卡片整体的「查看详情」
+                    e?.consume()
+                    onPlayByPlayClick?.invoke(game, game.status, buildGameRef(game))
+                }
+            })
+        }
+
+        val southPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(liveLink, BorderLayout.WEST)
+            add(detailHint, BorderLayout.EAST)
+        }
+
         card.add(statusPanel, BorderLayout.WEST)
         card.add(scorePanel, BorderLayout.CENTER)
-        card.add(detailHint, BorderLayout.SOUTH)
+        card.add(southPanel, BorderLayout.SOUTH)
         
         return card
     }
     
     /**
-     * 显示比赛详情
+     * 构建跨源反查引用：各数据源 gameId 不通用，
+     * 附上「归属源+美东日期+队名缩写」供详情/文字转播跨源定位同一场比赛
      */
-    private fun showGameDetail(game: NBAGame) {
-        // 各数据源 gameId 不通用，附上「归属源+美东日期+队名缩写」供详情/文字转播跨源反查
-        val gameRef = if (game.homeTeam.abbreviation.isNotBlank() && game.awayTeam.abbreviation.isNotBlank()) {
+    private fun buildGameRef(game: NBAGame): GameRef? {
+        return if (game.homeTeam.abbreviation.isNotBlank() && game.awayTeam.abbreviation.isNotBlank()) {
             GameRef(
                 toEasternDate(selectedDate),
                 game.homeTeam.abbreviation,
@@ -513,6 +538,12 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
         } else {
             null
         }
+    }
+
+    /**
+     * 显示比赛详情
+     */
+    private fun showGameDetail(game: NBAGame) {
         val dialog = GameDetailDialog(
             project,
             game.gameId,
@@ -520,7 +551,11 @@ class NBAScorePanel(private val project: Project) : JPanel(BorderLayout()) {
             game.awayTeam.name,
             game.homeTeam.id,
             game.awayTeam.id,
-            gameRef
+            buildGameRef(game),
+            onOpenPlayByPlay = { status ->
+                // 详情内点「文字转播」：关闭详情，固定到直播标签页实时观看
+                onPlayByPlayClick?.invoke(game, status, buildGameRef(game))
+            }
         )
         dialog.show()
     }
