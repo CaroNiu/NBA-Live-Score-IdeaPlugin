@@ -29,7 +29,7 @@
 
   <a href="https://qr.alipay.com/tsx15620myb6nnchjaghnbd">
     <rect x="110" y="586" width="260" height="48" rx="24" fill="#1677ff"/>
-    <text class="btn" x="240" y="617" text-anchor="middle">📱 手机上点此直接转账 ›</text>
+    <text class="btn" x="240" y="617" text-anchor="middle">手机上点此直接转账 ›</text>
   </a>
 
   <text class="note" x="240" y="660" text-anchor="middle">捐赠完全自愿，与插件功能无关 · 插件永久免费，感谢支持 🙏</text>
