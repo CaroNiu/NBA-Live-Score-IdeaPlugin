@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="690" viewBox="0 0 480 690">
+  <style>
+    svg { max-width: 100vw; height: auto; display: block; margin: 0 auto; }
+    .title { font: 700 26px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1f2937; }
+    .sub   { font: 14px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #6b7280; }
+    .hint  { font: 600 16px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1677ff; }
+    .btn   { font: 600 16px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #ffffff; }
+    .note  { font: 12.5px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #9ca3af; }
+  </style>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0f6ff"/>
+      <stop offset="1" stop-color="#e8f0fe"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="480" height="690" fill="url(#bg)"/>
+  <rect x="24" y="24" width="432" height="642" rx="20" fill="#ffffff"/>
+
+  <text class="title" x="240" y="76" text-anchor="middle">💙 支持作者</text>
+  <text class="sub" x="240" y="108" text-anchor="middle">如果 NBA Live Score 帮你省去了切浏览器看比分的时间，</text>
+  <text class="sub" x="240" y="130" text-anchor="middle">欢迎请作者喝杯咖啡 ☕</text>
+
+  <image x="110" y="146" width="260" height="390" href="alipay-qrcode.png"
+         preserveAspectRatio="xMidYMid meet"/>
+
+  <text class="hint" x="240" y="568" text-anchor="middle">打开支付宝「扫一扫」扫码</text>
+
+  <a href="https://qr.alipay.com/tsx15620myb6nnchjaghnbd">
+    <rect x="110" y="586" width="260" height="48" rx="24" fill="#1677ff"/>
+    <text class="btn" x="240" y="617" text-anchor="middle">📱 手机上点此直接转账 ›</text>
+  </a>
+
+  <text class="note" x="240" y="660" text-anchor="middle">捐赠完全自愿，与插件功能无关 · 插件永久免费，感谢支持 🙏</text>
+</svg>
