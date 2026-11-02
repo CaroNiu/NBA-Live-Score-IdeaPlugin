@@ -8,6 +8,11 @@
 
 ![支付宝收款码](docs/donation/alipay-qrcode.png)
 
+**手机上也可以直接点：<https://qr.alipay.com/tsx15620myb6nnchjaghnbd>**（支付宝官方短链，可直接唤起支付宝）
+
+> 🇨🇳 **国内无法访问 GitHub 时**，可使用 jsDelivr 镜像捐赠页（内容与本页相同）：
+> <https://gcore.jsdelivr.net/gh/CaroNiu/NBA-Live-Score-IdeaPlugin@main/docs/donation/index.html>
+
 > 捐赠完全**自愿**，与插件功能无关，插件会保持永久免费、持续更新。
 > 感谢每一位支持者 🙏
 
