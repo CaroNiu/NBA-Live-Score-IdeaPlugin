@@ -36,12 +36,13 @@ class NBAScoreToolWindowFactory : ToolWindowFactory {
 /**
  * 主面板 - 包含多个标签页（懒加载以提升性能）
  *
- * 标签索引约定：0=比分、1=排名、2=直播（文字转播，固定 Tab 实时观看）
+ * 标签索引约定：0=比分、1=排名、2=直播（文字转播，固定 Tab 实时观看）、3=资讯（直播吧 NBA 新闻）
  */
 class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
 
     companion object {
         private const val TAB_LIVE = 2
+        private const val TAB_NEWS = 3
     }
 
     // 懒加载面板
@@ -49,9 +50,10 @@ class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
         openPlayByPlay(game, status, ref)
     }) }
     private val standingsPanel by lazy { StandingsPanel(project) }
+    private val newsPanel by lazy { NewsPanel() }
 
     // 跟踪哪些标签页已初始化
-    private val initializedTabs = BooleanArray(3)
+    private val initializedTabs = BooleanArray(4)
 
     /** 直播标签页容器：初始为占位提示，选比赛后替换为 PlayByPlayPanel */
     private val playByPlayContainer = JPanel(BorderLayout())
@@ -66,11 +68,13 @@ class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
         addTab("🏀 比分", JPanel())
         addTab("📊 排名", JPanel())
         addTab("📺 直播", playByPlayContainer)
+        addTab("📰 资讯", JPanel())
 
         // 设置标签提示
         setToolTipTextAt(0, "查看今日比赛比分")
         setToolTipTextAt(1, "查看东西部排名")
         setToolTipTextAt(TAB_LIVE, "固定展示所选比赛的文字直播，实时刷新")
+        setToolTipTextAt(TAB_NEWS, "直播吧 NBA 热点资讯，点击标题在插件内阅读全文")
 
         // 添加监听器，仅在首次点击标签时初始化内容
         addChangeListener { e ->
@@ -101,6 +105,7 @@ class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
                 standingsPanel.loadDataIfNeeded()
             }
             TAB_LIVE -> setComponentAt(TAB_LIVE, playByPlayContainer)
+            TAB_NEWS -> setComponentAt(TAB_NEWS, newsPanel)  // 面板构造时自动拉取资讯
         }
         if (index == TAB_LIVE) {
             showLivePlaceholder()
@@ -168,6 +173,9 @@ class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
         }
         if (initializedTabs[1]) {
             standingsPanel.dispose()
+        }
+        if (initializedTabs[TAB_NEWS]) {
+            newsPanel.dispose()
         }
     }
 }

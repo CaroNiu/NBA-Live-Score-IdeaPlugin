@@ -37,7 +37,7 @@ NBA Live Score — IntelliJ IDEA 插件（id: `com.caro.nbascore`），在右侧
 
 `plugin.xml` 注册三样东西：右侧工具窗口 "NBA Score"（`NBAScoreToolWindowFactory`）、主工具栏刷新按钮（`RefreshAction`）、应用级设置页（"NBA AI 助手"，`NBASettingsState` / `NBASettingsConfigurable`）。
 
-`NBAScoreToolWindowFactory.kt` 中的 `NBAScoreMainPanel` 是 4 个标签页的容器（JBTabbedPane），**懒加载**：先放空的 `JPanel()` 占位，首次点击某标签才实例化真实面板（`initializeTab`），并记录在 `initializedTabs` 中。新增标签页时注意维护这个索引约定（当前：0=比分、1=排名、2=季后赛、3=AI助手；排名面板通过 `onPlayoffClick` 回调切换到索引 2）。
+`NBAScoreToolWindowFactory.kt` 中的 `NBAScoreMainPanel` 是 4 个标签页的容器（JBTabbedPane），**懒加载**：先放空的 `JPanel()` 占位，首次点击某标签才实例化真实面板（`initializeTab`），并记录在 `initializedTabs` 中。新增标签页时注意维护这个索引约定（当前：0=比分、1=排名、2=直播、3=资讯）。
 
 ### 面板 + 服务的固定模式
 
@@ -47,9 +47,9 @@ NBA Live Score — IntelliJ IDEA 插件（id: `com.caro.nbascore`），在右侧
 |---|---|---|
 | `NBAScorePanel` | `service.NBADataService` | ESPN scoreboard API |
 | `StandingsPanel` | `service.StandingsService` | ESPN standings API |
-| `PlayoffBracketPanel` | `service.PlayoffService`（**缺失，见已知问题**） | 第三方对阵图 API |
-| `GameDetailDialog` / `PlayByPlayPanel` | `service.GameDetailService` | ESPN summary API（按 gameId） |
-| `AIAssistantPanel` | 无独立服务，直接在面板内调 OkHttp | 用户配置的 OpenAI 兼容接口（默认智谱 GLM-4.7-Flash） |
+| `PlayByPlayPanel` | `service.GameDetailService` | 直播吧/新浪/ESPN 文字直播流 |
+| `GameDetailDialog` | `service.GameDetailService` | 直播吧详情（中文统计）→ 新浪 → ESPN 降级 |
+| `NewsPanel` | `service.NewsService` | 直播吧移动版资讯页（HTML 直出，正则提取） |
 
 **线程模型（所有面板统一遵循）**：每个面板持有 `CoroutineScope(Dispatchers.Default + SupervisorJob())`，在协程里执行**同步** OkHttp `execute()` 网络请求，结果通过 `ApplicationManager.getApplication().invokeLater` 或 `SwingUtilities.invokeLater` 回到 EDT 更新 UI；`dispose()` 取消 scope。不要在 EDT 上发起网络请求，也不要在后台线程直接碰 Swing 组件。
 
@@ -67,15 +67,9 @@ ESPN API 按**美国东部日期**查询。`NBADataService.getGames(date)` 要�
 - 支持流式（SSE，手动解析 `data: ` 行）和非流式两种响应模式，由设置中的 `stream` 开关决定
 - API Key 必须用户自行配置，为空时直接报错
 
-### 已知问题：仓库不可编译（PlayoffService 缺失）
+### 已知遗留：未挂载的面板类（勿删依赖）
 
-`PlayoffBracketPanel.kt` 引用的三个类从未被提交到仓库（也不在 .gitignore 中，就是漏提交了）：
-
-- `com.caro.nba.service.PlayoffService`（含 `getPlayoffBracket(): Result<PlayoffBracketResponse>`）
-- `com.caro.nba.model.PlayoffBracketResponse`（含 `data` 字段）
-- `com.caro.nba.model.PlayoffBracketSeries`
-
-任何 `./gradlew buildPlugin` 都会因 unresolved reference 失败。涉及季后赛功能的改动，要么先补建这些类，要么移除季后赛标签页。模型结构可从 `PlayoffBracketPanel` 的用法反推：`data.top`（西部，`List<List<PlayoffBracketSeries>>` 按轮次分组）、`data.bottom`（东部）、`data.finals`（可空）；series 含 `teams: List<Team>?`（Team 有 `name`/`img`/`rank`）、`info1`/`info2`（系列赛比分字符串）、`win_threshold: Int`、`schedule.list`（每场含 `left_team`/`right_team`/`left_logo`/`right_logo`/`score`，score 格式 `"123-110"`）。队名与 ESPN 无关，疑似另一家中文数据源。
+5.0.0 移除了季后赛对阵图与 AI 助手**标签页**，但 `PlayoffBracketPanel.kt`、`AIAssistantPanel.kt` 及其服务类（`PlayoffService` 等）仍保留在源码中（未注册到 plugin.xml、不在标签索引里）。编译不受影响；如需彻底移除，先确认无其他引用再删整个链路。
 
 ### 其他易踩的坑
 
