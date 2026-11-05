@@ -350,7 +350,9 @@ class Zhibo8PlayByPlayDataSource : GameDetailDataSource {
         for (msg in sorted) {
             val text = msg.get("live_text")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
             val periodDisplay = msg.get("pid_text")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
-            if (text.isEmpty() && periodDisplay.isEmpty()) continue
+            // 空文本消息（编辑撤回/清空后残留，pid_text 仍为"第N节"）直接跳过，
+            // 否则 text.ifEmpty { periodDisplay } 会渲染出无意义的「第4节」占位行
+            if (text.isEmpty()) continue
 
             // 节数：pid_text="第N节"直接取；加时记 5；其余（比赛结束/中场等）继承上一条，保持分组连续
             val periodFromPid = Regex("""第(\d+)节""").find(periodDisplay)?.groupValues?.get(1)?.toIntOrNull()
