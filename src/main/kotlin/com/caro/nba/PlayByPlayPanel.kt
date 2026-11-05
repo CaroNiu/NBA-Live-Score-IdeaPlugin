@@ -304,35 +304,24 @@ class PlayByPlayPanel(
             })
         }
 
-        // 按节数分组显示
-        val playsByPeriod = pbp.plays.groupBy { it.period }
-        val sortedPeriods = playsByPeriod.keys.sortedDescending()
-
-        for (period in sortedPeriods) {
-            val periodPlays = playsByPeriod[period] ?: continue
-            val periodDisplay = periodPlays.firstOrNull()?.periodDisplay ?: "第${period}节"
-
-            // 节标题（period=0 表示未识别节次，不重复渲染组头）
-            if (period > 0) {
-                content.add(JLabel("━━━ $periodDisplay ━━━").apply {
+        // 各数据源的 plays 均为时间升序（直播吧按 live_sid、新浪按发帖时间、ESPN 按 sequenceNumber），
+        // 倒序渲染即「最新在最上」。此处不能按 clock 重排：直播吧/新浪的 clock 是发帖时间「HH:mm」
+        // （分钟精度），同一分钟内所有消息排序键相同，稳定排序会保留源顺序（旧消息在上），
+        // 与整页「最新在上」方向相反——同分钟的连续播报（如「第一罚/第二罚/命中」）读起来就是错位的。
+        // （ESPN 不出错纯属侥幸：其 clock 是比赛时钟，数字递减，降序恰好等于最新在前）
+        // 节标题：period 变化时插入（倒序遍历=新节在前）；period=0 表示未识别节次，不渲染组头
+        var lastPeriod = Int.MIN_VALUE
+        for (play in pbp.plays.asReversed()) {
+            if (play.period > 0 && play.period != lastPeriod) {
+                lastPeriod = play.period
+                content.add(JLabel("━━━ ${play.periodDisplay.ifEmpty { "第${play.period}节" }} ━━━").apply {
                     font = font.deriveFont(Font.BOLD, 13f)
                     foreground = JBColor(0x0066CC, 0x4A9EFF)
                     alignmentX = Component.CENTER_ALIGNMENT
                     border = EmptyBorder(10, 0, 10, 0)
                 })
             }
-
-            // 该节的所有事件
-            val sortedPlays = periodPlays.sortedByDescending {
-                val clockParts = it.clock.split(":")
-                val minutes = clockParts.getOrNull(0)?.toIntOrNull() ?: 0
-                val seconds = clockParts.getOrNull(1)?.toIntOrNull() ?: 0
-                minutes * 60 + seconds
-            }
-
-            for (play in sortedPlays) {
-                content.add(createPlayPanel(play))
-            }
+            content.add(createPlayPanel(play))
         }
 
         // 更新 scrollPane 内容
