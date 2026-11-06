@@ -26,6 +26,10 @@ import java.time.format.DateTimeFormatter
  * 主要端点：
  * - 按日比分: https://bifen.qiumibao.com/json/{yyyy-MM-dd}/list.htm
  *   返回当天全部体育项目的比赛列表（NBA、CBA、足球等），需按 type=basketball + 队名过滤出 NBA
+ * - 首页赛程: https://www.zhibo8.com/ 「今日直播」区（服务端直出）
+ *   含北京今/明/后天全部场次（含未开赛的），条目 id="saishi{id}" 与 bifen 列表 id 同一命名空间。
+ *   bifen 列表只发布已开赛的比赛（2026-11-06 实测：美东当天两场，已开赛的 1 场在列表，
+ *   7 分钟后开球的 1 场完全缺席），查询美东当天/未来日期时用它补齐未开赛场次
  *
  * 注意：
  * - 接口日期为北京时间；NBA 比赛发生在美国东部晚间，对应北京时间为次日，
@@ -39,6 +43,19 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
 
     private val baseUrl = "https://bifen.qiumibao.com/json"
 
+    /** 首页「今日直播」区所在页面（服务端直出，含北京今/明/后天赛程） */
+    private val homepageUrl = "https://www.zhibo8.com/"
+
+    /** 首页赛程条目：<li ... id="saishi{id}" data-time="北京 yyyy-MM-dd HH:mm" ...>（属性串整体捕获，label 可能在 id 之前） */
+    private val homeEntryRegex = Regex(
+        """<li([^>]*id="saishi(\d+)"[^>]*)>(.*?)</b>""",
+        RegexOption.DOT_MATCHES_ALL
+    )
+
+    private val attrTimeRegex = Regex("""data-time="([\d\- :]+)"""")
+    private val attrLabelRegex = Regex("""label="([^"]*)"""")
+    private val attrRightIsHomeRegex = Regex("""data-rightishome="(\d)"""")
+
     /** 是否 NBA 球队（基于公共中文队名映射） */
     private fun isNbaTeam(name: String): Boolean =
         DataSourceCommon.chineseNameToAbbr.containsKey(DataSourceCommon.normalizeChineseTeamName(name))
@@ -46,8 +63,8 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
     override fun getScores(date: LocalDate): Result<NBAScoreboard> {
         return try {
             // 直播吧按北京日期组织比赛：美东日期 D 的 NBA 比赛位于北京日期 D+1。
-            // 同时请求 D 与 D+1 两天，先按比赛开始时间（北京->美东）精确过滤；
-            // 若无精确匹配，退回请求日期当天的 NBA 比赛（兼容调用方直接传北京日期）
+            // 同时请求 D 与 D+1 两天，再按比赛开始时间（北京->美东）精确过滤，
+            // 只采信精确匹配（不做跨日期兜底，避免"切日期查的还是今天的比赛"）
             val nextDay = fetchDay(date.plusDays(1))
             val sameDay = fetchDay(date)
 
@@ -58,11 +75,31 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
                 return failure
             }
 
-            val candidates = nextDay.getOrDefault(emptyList()) + sameDay.getOrDefault(emptyList())
+            var candidates = nextDay.getOrDefault(emptyList()) + sameDay.getOrDefault(emptyList())
             DataSourceCommon.debugLog(
                 "直播吧 请求日期=$date: 次日(${date.plusDays(1)})=${nextDay.getOrDefault(emptyList()).size} 场, " +
                         "当日=${sameDay.getOrDefault(emptyList()).size} 场 NBA 比赛"
             )
+
+            val easternToday = LocalDate.now(ZoneId.of("America/New_York"))
+
+            // bifen 列表只发布已开赛的比赛：美东当天未开赛的场次（以及未来 2 天内的全部场次）
+            // 不在其中。用首页「今日直播」区赛程补齐（id 与 bifen 同源，按 id 去重后仅补缺席场次，
+            // 全部标记为未开始；首页只覆盖北京今/明/后天，更远日期自然补不到，仍走降级链）
+            if (!date.isBefore(easternToday)) {
+                var supplemented = 0
+                fetchHomepageSchedule().getOrNull()?.forEach { entry ->
+                    if (candidates.none { it.gameId == entry.gameId } &&
+                        toEasternDate(entry.beijingStart) == date
+                    ) {
+                        candidates += buildScheduledGame(entry)
+                        supplemented++
+                    }
+                }
+                if (supplemented > 0) {
+                    DataSourceCommon.debugLog("直播吧 首页赛程补齐 $supplemented 场未开赛比赛")
+                }
+            }
 
             // 精确过滤：比赛开始时间（北京时间）换算到美东后落在请求日期
             val etMatched = candidates.filter { game ->
@@ -74,10 +111,9 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
             // 兜底会返回北京日期对得上但美东日期错位的比赛
             // （如查美东 10-29 却返回美东 10-28 已打完的场次，UI 表现为"切日期查的还是今天的比赛"）
             if (etMatched.isEmpty()) {
-                val easternToday = LocalDate.now(ZoneId.of("America/New_York"))
                 if (!date.isBefore(easternToday)) {
-                    // 直播吧按北京日期归档且只发布已开始的赛程：美东当天晚场（北京次日早上开打）
-                    // 与未来日期的 NBA 条目不在任何列表中。返回失败放行降级链（ESPN 等有完整赛程）
+                    // 当天/未来日期在 bifen 与首页赛程中均无条目 = 超出首页覆盖范围（北京 3 天外）
+                    // 或首页拉取失败。返回失败放行降级链（ESPN 等有完整赛程）
                     val failure: Result<NBAScoreboard> = Result.failure(
                         Exception("直播吧：该日期无赛程数据")
                     )
@@ -87,7 +123,7 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
                 return Result.success(NBAScoreboard(date.toString(), emptyList()))
             }
 
-            Result.success(NBAScoreboard(date.toString(), etMatched))
+            Result.success(NBAScoreboard(date.toString(), etMatched.sortedBy { it.startTime }))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -126,6 +162,94 @@ class Zhibo8ScoreDataSource : ScoreDataSource {
             Result.failure(e)
         }
     }
+
+    /**
+     * 首页「今日直播」区的未开赛赛程（补齐 bifen 列表缺席场次用）
+     */
+    private data class HomepageGame(
+        val gameId: String,
+        val beijingStart: String,   // 北京时间 yyyy-MM-dd HH:mm
+        val homeName: String,
+        val awayName: String
+    )
+
+    /**
+     * 拉取并解析首页「今日直播」区赛程，返回其中的 NBA 篮球条目
+     *
+     * 条目结构（2026-11-06 实测）：
+     * <li label="NBA,篮球,勇士,热火,NBA常规赛" id="saishi2139913"
+     *     data-time="2026-11-06 11:00" data-rightishome="1" data-type="basketball">
+     *   <time>11:00</time>...<span class="_teams"> 热火 <img/><span> - </span><img/> 勇士</span></b>
+     * - id 与 bifen 比分列表的 gameId 同一命名空间（如 saishi2139912 = bifen id 2139912）
+     * - data-rightishome="1" 时 _teams 右侧为主队（与 bifen home_team 一致）
+     * - label 以逗号分段后须含独立的 "NBA" 段（防止 WNBA 等子串误匹配）
+     */
+    private fun fetchHomepageSchedule(): Result<List<HomepageGame>> {
+        return try {
+            val request = Request.Builder()
+                .url(homepageUrl)
+                .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+                .header("Referer", "https://www.zhibo8.com/")
+                .header("Accept", "text/html, */*")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val failure: Result<List<HomepageGame>> = Result.failure(Exception("HTTP ${response.code}"))
+                    return failure
+                }
+                val body = response.body?.string()
+                    ?: return Result.failure(Exception("直播吧首页响应为空"))
+                Result.success(parseHomepageSchedule(body))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun parseHomepageSchedule(html: String): List<HomepageGame> {
+        val games = mutableListOf<HomepageGame>()
+        for (m in homeEntryRegex.findAll(html)) {
+            val attrs = m.groupValues[1]
+            val id = m.groupValues[2]
+            val inner = m.groupValues[3]
+
+            if ("data-type=\"basketball\"" !in attrs) continue
+            val label = attrLabelRegex.find(attrs)?.groupValues?.get(1) ?: continue
+            if (label.split(',').none { it.trim() == "NBA" }) continue
+            val time = attrTimeRegex.find(attrs)?.groupValues?.get(1)?.trim() ?: continue
+
+            val teamsMarker = "<span class=\"_teams\">"
+            val teamsIdx = inner.indexOf(teamsMarker)
+            if (teamsIdx < 0) continue
+            // 剥掉 img/内层 span 标签后按 "-" 分割（"热火  -  勇士"）
+            val names = inner.substring(teamsIdx + teamsMarker.length)
+                .replace(Regex("<[^>]+>"), " ")
+                .split('-')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            if (names.size < 2) continue
+
+            val rightIsHome = attrRightIsHomeRegex.find(attrs)?.groupValues?.get(1) == "1"
+            val homeName = if (rightIsHome) names.last() else names.first()
+            val awayName = if (rightIsHome) names.first() else names.last()
+            if (!isNbaTeam(homeName) || !isNbaTeam(awayName)) continue
+
+            games += HomepageGame(id, time, homeName, awayName)
+        }
+        return games
+    }
+
+    /** 未开赛场次 → NBAGame（status=scheduled，detail 展示北京时间开球时刻） */
+    private fun buildScheduledGame(entry: HomepageGame): NBAGame =
+        NBAGame(
+            gameId = entry.gameId,
+            status = "scheduled",
+            startTime = entry.beijingStart,
+            detail = "北京时间 ${entry.beijingStart.takeLast(5)} 开赛",
+            homeTeam = buildTeam("", entry.homeName),
+            awayTeam = buildTeam("", entry.awayName)
+        )
 
     /**
      * 解析按日比赛列表 JSON，过滤出 NBA 比赛
