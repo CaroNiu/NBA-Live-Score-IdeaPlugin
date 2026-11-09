@@ -1,7 +1,6 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
 
 # IDE
 .idea/
@@ -13,6 +12,8 @@ out/
 # Kotlin
 *.class
 *.jar
+# gradle wrapper jar 必须入库（CI 的 ./gradlew 依赖它；例外必须写在 *.jar 之后）
+!gradle/wrapper/gradle-wrapper.jar
 *.log
 
 # OS
