@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.caro.nba.datasource.DataSourceCommon
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.*
@@ -350,6 +351,25 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var temperature: String = ""
     var stream: Boolean = true  // 流式输出开关
 
+    // ===== 关注与提醒 =====
+    /** 关注的球队中文名列表（空 = 不关注，状态栏常驻比分与通知均不生效） */
+    var followedTeams: MutableList<String> = mutableListOf()
+    /** 状态栏常驻比分开关（配置了关注球队后生效） */
+    var statusBarEnabled: Boolean = true
+    /**
+     * 状态栏显示样式（隐蔽程度）：
+     * normal=完整队名（凯尔特人 67-46 雄鹿 · 第三节）；
+     * compact=球队缩写（CEL 67-46 MIL · Q3）；
+     * stealth=仅比分（67-46，按钮悬停才显示，最隐蔽）
+     */
+    var displayMode: String = "normal"
+    /** 比赛通知开关：开赛 / 进入新一节 / 关键分（分差 ≤5）/ 完赛 */
+    var notifyEnabled: Boolean = true
+    /** 匿名统计上报（默认关闭）：启动时仅上报 pluginId + 版本号，不采集任何机器/使用信息 */
+    var anonymousPing: Boolean = false
+    /** 匿名统计上报接口地址（完整 URL，部署后自行填写；留空则不请求） */
+    var pingUrl: String = ""
+
     companion object {
         fun getInstance(): NBASettingsState {
             return ApplicationManager.getApplication().getService(NBASettingsState::class.java)
@@ -369,6 +389,12 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.maxTokens = state.maxTokens
         this.temperature = state.temperature
         this.stream = state.stream
+        this.followedTeams = state.followedTeams
+        this.statusBarEnabled = state.statusBarEnabled
+        this.displayMode = state.displayMode
+        this.notifyEnabled = state.notifyEnabled
+        this.anonymousPing = state.anonymousPing
+        this.pingUrl = state.pingUrl
     }
 }
 
@@ -385,13 +411,15 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
     private var ballDontLieKeyField: JTextField? = null
     private var sportsDbKeyField: JTextField? = null
 
-    // AI 助手设置组件
-    private var apiurlField: JTextField? = null
-    private var apikeyField: JTextField? = null
-    private var modelField: JTextField? = null
-    private var maxTokensField: JTextField? = null
-    private var temperatureField: JTextField? = null
-    private var streamCheckBox: JCheckBox? = null
+    // 关注与提醒设置组件
+    private var teamCombo: JComboBox<String>? = null
+    private var followedListModel: DefaultListModel<String>? = null
+    private var followedList: JList<String>? = null
+    private var statusBarCheckBox: JCheckBox? = null
+    private var displayModeCombo: JComboBox<String>? = null
+    private var notifyCheckBox: JCheckBox? = null
+    private var pingCheckBox: JCheckBox? = null
+    private var pingUrlField: JTextField? = null
 
     // 可用数据源列表（与 DataSource 枚举保持一致，按推荐优先级排序）
     private val dataSourceOptions = listOf(
@@ -416,10 +444,115 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         // ===== Tab 1: 数据源设置 =====
         tabbedPane.addTab("数据源", createDataSourcePanel(settings))
 
-        // ===== Tab 2: AI 助手设置 =====
-        tabbedPane.addTab("AI 助手", createAIPanel(settings))
+        // ===== Tab 2: 关注与提醒 =====
+        tabbedPane.addTab("关注与提醒", createFollowPanel(settings))
 
         return tabbedPane
+    }
+
+    /**
+     * 创建关注与提醒设置面板（状态栏常驻比分 / 比赛通知 / 匿名统计）
+     */
+    private fun createFollowPanel(settings: NBASettingsState): JComponent {
+        val panel = JPanel(GridBagLayout()).apply {
+            border = JBUI.Borders.empty(10)
+        }
+        val gbc = GridBagConstraints().apply {
+            insets = Insets(5, 5, 5, 5)
+            anchor = GridBagConstraints.WEST
+        }
+
+        // 关注球队（30 支球队中文名来自 DataSourceCommon 公共映射）
+        val allTeams = DataSourceCommon.chineseNameToAbbr.keys.sorted().toTypedArray()
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JLabel("关注球队:"), gbc)
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        teamCombo = JComboBox(allTeams).also { panel.add(it, gbc) }
+
+        gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JButton("关注").apply {
+            addActionListener {
+                val name = teamCombo?.selectedItem as? String ?: return@addActionListener
+                val model = followedListModel ?: return@addActionListener
+                if (!model.contains(name)) model.addElement(name)
+            }
+        }, gbc)
+
+        // 已关注列表
+        gbc.gridx = 0; gbc.gridy = 1; gbc.insets = Insets(5, 5, 5, 5)
+        panel.add(JLabel("已关注:"), gbc)
+        followedListModel = DefaultListModel<String>().also { lm ->
+            settings.followedTeams.forEach { lm.addElement(it) }
+        }
+        followedList = JList(followedListModel).apply {
+            visibleRowCount = 4
+        }
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 0.4
+        panel.add(JScrollPane(followedList), gbc)
+        gbc.gridx = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0; gbc.weighty = 0.0
+        panel.add(JButton("取消关注").apply {
+            verticalAlignment = SwingConstants.TOP
+            addActionListener {
+                val selected = followedList?.selectedIndex ?: return@addActionListener
+                if (selected >= 0) followedListModel?.remove(selected)
+            }
+        }, gbc)
+
+        // 开关区
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 3; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        statusBarCheckBox = JCheckBox("状态栏常驻比分（IDE 底部显示关注比赛实时比分，点击唤起工具窗口）", settings.statusBarEnabled).also {
+            panel.add(it, gbc)
+        }
+
+        // 显示样式（隐蔽程度）
+        gbc.gridy = 3; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JLabel("显示样式:"), gbc)
+        val displayModes = arrayOf(
+            "完整队名（凯尔特人 67-46 雄鹿 · 第三节）",
+            "球队缩写（CEL 67-46 MIL · Q3）",
+            "仅比分（67-46，按钮悬停显示，最隐蔽）"
+        )
+        displayModeCombo = JComboBox(displayModes).also {
+            it.selectedIndex = when (settings.displayMode) {
+                "compact" -> 1
+                "stealth" -> 2
+                else -> 0
+            }
+            gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+            panel.add(it, gbc)
+        }
+
+        gbc.gridy = 4; gbc.gridwidth = 3; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        notifyCheckBox = JCheckBox("比赛通知：开赛 / 进入新一节 / 关键分（分差≤5）/ 完赛", settings.notifyEnabled).also {
+            panel.add(it, gbc)
+        }
+        gbc.gridy = 5
+        pingCheckBox = JCheckBox("匿名统计（默认关闭）：启动时仅上报插件版本，不采集任何机器或使用信息", settings.anonymousPing).also {
+            panel.add(it, gbc)
+        }
+
+        // ping URL
+        gbc.gridy = 6; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JLabel("上报地址:"), gbc)
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        pingUrlField = JTextField(settings.pingUrl, 40).also {
+            it.toolTipText = "匿名统计接口完整 URL（部署后填写；插件关闭匿名统计时不请求）"
+            panel.add(it, gbc)
+        }
+
+        // 说明
+        gbc.gridx = 0; gbc.gridy = 7; gbc.gridwidth = 3; gbc.insets = Insets(15, 5, 5, 5)
+        panel.add(JLabel("""
+            <html><body style='width:520px'>
+            <b>关注与提醒说明：</b><br>
+            • 关注球队后，比赛进行中每 15 秒自动轮询比分（其余时间 60 秒等待开赛）<br>
+            • 状态栏 widget 只显示「焦点比赛」：优先进行中的场次，其次最近的未开始场次<br>
+            • 通知每场比赛每类只提醒一次；分差回到 8 分以上后再次胶着不再重复提醒<br>
+            • 匿名统计完全自愿开启，仅请求一次上报地址（附带插件版本号），失败静默
+            </body></html>
+        """.trimIndent()), gbc)
+
+        return panel
     }
 
     /**
@@ -492,91 +625,6 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
     }
 
     /**
-     * 创建 AI 助手设置面板
-     */
-    private fun createAIPanel(settings: NBASettingsState): JComponent {
-        val panel = JPanel(GridBagLayout()).apply {
-            border = JBUI.Borders.empty(10)
-        }
-
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(5, 5, 5, 5)
-            anchor = GridBagConstraints.WEST
-        }
-
-        // API URL
-        gbc.gridx = 0; gbc.gridy = 0
-        panel.add(JLabel("API URL:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        apiurlField = JTextField(settings.apiUrl, 40).also {
-            it.toolTipText = "完整请求地址"
-            panel.add(it, gbc)
-        }
-
-        // API Key（脱敏显示）
-        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("API Key:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        val maskedKey = maskApiKey(settings.apiKey)
-        apikeyField = JTextField(maskedKey, 40).also {
-            it.toolTipText = "API 密钥（脱敏显示）"
-            panel.add(it, gbc)
-        }
-
-        // Model
-        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("模型:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        modelField = JTextField(settings.model, 40).also {
-            it.toolTipText = "模型名称"
-            panel.add(it, gbc)
-        }
-
-        // Max Tokens
-        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("Max Tokens:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        maxTokensField = JTextField(settings.maxTokens, 40).also {
-            it.toolTipText = "最大输出 token 数"
-            panel.add(it, gbc)
-        }
-
-        // Temperature
-        gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("Temperature:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        temperatureField = JTextField(settings.temperature, 40).also {
-            it.toolTipText = "温度参数 0-2"
-            panel.add(it, gbc)
-        }
-
-        // Stream
-        gbc.gridx = 0; gbc.gridy = 5; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("流式输出:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        streamCheckBox = JCheckBox("启用流式输出", settings.stream).also {
-            panel.add(it, gbc)
-        }
-
-        // 说明
-        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 2; gbc.insets = Insets(15, 5, 5, 5)
-        panel.add(JLabel("""
-            <html><body style='width:500px'>
-            <b>AI 助手参数说明：</b><br>
-            • <b>API URL</b>: 完整请求地址（含路径）<br>
-            • <b>API Key</b>: 认证密钥<br>
-            • <b>模型</b>: 模型名称（如 glm-4.7-flash）<br>
-            • <b>Max Tokens</b>: 最大输出长度<br>
-            • <b>Temperature</b>: 随机性控制（0-2）<br>
-            • <b>流式输出</b>: 实时显示回复（部分模型不支持）<br><br>
-            <b>参考文档：</b> <a href="https://docs.bigmodel.cn/cn/guide/models/free/glm-4.7-flash">智谱 GLM-4.7-Flash</a>
-            </body></html>
-        """.trimIndent()), gbc)
-
-        return panel
-    }
-
-    /**
      * API Key 脱敏：保留前3位和后3位，中间用 *** 替代
      */
     private fun maskApiKey(key: String): String {
@@ -605,21 +653,31 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             currentSportsDbKey != settings.sportsDbApiKey
         }
 
-        // AI 助手设置检查
-        val currentKey = apikeyField?.text ?: ""
-        val keyChanged = if (currentKey.contains("***")) {
-            false
-        } else {
-            currentKey != settings.apiKey
-        }
-
         return dataSourceChanged || bdlKeyChanged || sportsDbKeyChanged ||
-               apiurlField?.text != settings.apiUrl ||
-               keyChanged ||
-               modelField?.text != settings.model ||
-               maxTokensField?.text != settings.maxTokens ||
-               temperatureField?.text != settings.temperature ||
-               streamCheckBox?.isSelected != settings.stream
+               followedTeamsChanged(settings) ||
+               statusBarCheckBox?.isSelected != settings.statusBarEnabled ||
+               selectedDisplayMode() != settings.displayMode ||
+               notifyCheckBox?.isSelected != settings.notifyEnabled ||
+               pingCheckBox?.isSelected != settings.anonymousPing ||
+               pingUrlField?.text != settings.pingUrl
+    }
+
+    /** 关注球队列表是否被编辑过 */
+    private fun followedTeamsChanged(settings: NBASettingsState): Boolean {
+        return followedTeamsFromModel() != settings.followedTeams
+    }
+
+    /** 下拉框当前选中的显示样式 -> 存储值 */
+    private fun selectedDisplayMode(): String = when (displayModeCombo?.selectedIndex) {
+        1 -> "compact"
+        2 -> "stealth"
+        else -> "normal"
+    }
+
+    /** DefaultListModel -> List（DefaultListModel 不是 java.util.List，无 toList 扩展） */
+    private fun followedTeamsFromModel(): List<String> {
+        val model = followedListModel ?: return emptyList()
+        return (0 until model.size()).map { model.get(it) }
     }
 
     /**
@@ -650,18 +708,20 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             currentSportsDbKey
         }
 
-        // AI 助手设置
-        settings.apiUrl = apiurlField?.text ?: ""
-        val currentKey = apikeyField?.text ?: ""
-        settings.apiKey = if (currentKey.contains("***")) {
-            settings.apiKey
-        } else {
-            currentKey
+        // 关注与提醒设置
+        val hadFollows = settings.followedTeams.isNotEmpty()
+        settings.followedTeams = followedTeamsFromModel().toMutableList()
+        val followChanged = hadFollows || settings.followedTeams.isNotEmpty()
+        settings.statusBarEnabled = statusBarCheckBox?.isSelected ?: true
+        settings.displayMode = selectedDisplayMode()
+        settings.notifyEnabled = notifyCheckBox?.isSelected ?: true
+        settings.anonymousPing = pingCheckBox?.isSelected ?: false
+        settings.pingUrl = pingUrlField?.text ?: ""
+
+        // 关注配置变化即时生效：清通知快照、按新节奏重启轮询
+        if (followChanged) {
+            com.caro.nba.service.FollowScoreWatcher.onSettingsChanged()
         }
-        settings.model = modelField?.text ?: ""
-        settings.maxTokens = maxTokensField?.text ?: ""
-        settings.temperature = temperatureField?.text ?: ""
-        settings.stream = streamCheckBox?.isSelected ?: true
     }
 
     override fun reset() {
@@ -674,12 +734,17 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         ballDontLieKeyField?.text = maskApiKey(settings.ballDontLieApiKey)
         sportsDbKeyField?.text = maskApiKey(settings.sportsDbApiKey)
 
-        // AI 助手设置
-        apiurlField?.text = settings.apiUrl
-        apikeyField?.text = maskApiKey(settings.apiKey)
-        modelField?.text = settings.model
-        maxTokensField?.text = settings.maxTokens
-        temperatureField?.text = settings.temperature
-        streamCheckBox?.isSelected = settings.stream
+        // 关注与提醒设置
+        followedListModel?.clear()
+        settings.followedTeams.forEach { followedListModel?.addElement(it) }
+        statusBarCheckBox?.isSelected = settings.statusBarEnabled
+        displayModeCombo?.selectedIndex = when (settings.displayMode) {
+            "compact" -> 1
+            "stealth" -> 2
+            else -> 0
+        }
+        notifyCheckBox?.isSelected = settings.notifyEnabled
+        pingCheckBox?.isSelected = settings.anonymousPing
+        pingUrlField?.text = settings.pingUrl
     }
 }

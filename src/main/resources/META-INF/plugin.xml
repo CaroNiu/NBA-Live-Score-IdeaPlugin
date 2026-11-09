@@ -38,9 +38,33 @@
                                  instance="com.caro.nba.NBASettingsConfigurable"
                                  id="com.caro.nba.settings"
                                  displayName="NBA 插件设置"/>
+
+        <!-- 比赛通知气泡（关注球队：开赛/节次/关键分/完赛） -->
+        <notificationGroup id="NBA Score Notifications" displayType="BALLOON"/>
+
+        <!-- 状态栏常驻比分 widget（关注球队的比分轮播） -->
+        <statusBarWidgetFactory id="NBA.ScoreWidget"
+                                implementation="com.caro.nba.StatusBarScoreWidgetFactory"/>
+
+        <!-- 状态栏文字直播 widget（用户选择比赛后常驻滚动最新事件，与比分轮播独立） -->
+        <statusBarWidgetFactory id="NBA.LiveWidget"
+                                implementation="com.caro.nba.StatusBarLiveWidgetFactory"/>
+
+        <!-- 匿名统计上报（opt-in，默认关闭，见设置页「关注与提醒」） -->
+        <postStartupActivity implementation="com.caro.nba.PingStartupActivity"/>
     </extensions>
 
     <change-notes><![CDATA[
+        <h3>5.4.0</h3>
+        <ul>
+            <li>新增：状态栏常驻比分——关注球队的比赛每 5 秒轮播，支持手动切换、立即刷新，点击唤起主面板</li>
+            <li>新增：状态栏文字直播——选择一场比赛常驻观看最新赛况，15 秒自动刷新，与比分轮播相互独立</li>
+            <li>新增：关注球队比赛通知——开赛 / 进入新一节 / 关键分（分差≤5）/ 完赛气泡提醒，每类只提醒一次</li>
+            <li>新增：设置页「关注与提醒」标签页——管理关注球队、状态栏与通知开关</li>
+            <li>新增：隐蔽显示模式——完整队名 / 球队缩写 / 仅比分三档，仅比分模式下按钮悬停才显示</li>
+            <li>新增：匿名统计（opt-in，默认关闭）——启动时仅上报插件版本号，可自定义上报地址</li>
+            <li>移除：设置页「AI 助手」标签页（AI 面板已于 5.0.0 从工具窗口移除）</li>
+        </ul>
         <h3>5.3.1</h3>
         <ul>
             <li>修复：直播吧源当天比分不全——比分接口只发布已开赛的比赛，未开赛的晚场会缺席（如美东当天两场只显示一场）；现用直播吧首页赛程（含未来场次，比赛 ID 与比分接口同源）自动补齐未开赛场次，显示「未开始 + 北京时间开球时刻」</li>
