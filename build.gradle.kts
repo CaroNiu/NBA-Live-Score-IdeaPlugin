@@ -36,12 +36,18 @@ intellijPlatform {
     pluginConfiguration {
         name = "NBA Live Score"
         version = "5.4.0"
-        
+
         // 适配 IDEA 2024.2 到 2025.3+
         ideaVersion {
             sinceBuild = "242"
             untilBuild = provider { null }  // 不设置上限
         }
+    }
+
+    // Marketplace 发布凭据：CI（tag 触发）经环境变量注入 JETBRAINS_MARKETPLACE_TOKEN，
+    // 本地无此变量时 token 为空，publishPlugin 不会意外执行
+    publishing {
+        token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
     }
 }
 

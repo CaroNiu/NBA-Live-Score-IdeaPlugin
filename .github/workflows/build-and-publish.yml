@@ -1,48 +1,86 @@
-# name: Build and Publish Plugin
+name: Build and Publish Plugin
 
-# on:
-#   push:
-#     branches: [ main ]
-#   workflow_dispatch:
+# 两个独立阶段：
+# 1. build   —— PR 到 main 时构建验证，产物上传为 artifact 供下载安装测试
+# 2. publish —— 推送 v* 标签时发布到 JetBrains Marketplace 并创建 GitHub Release
+#    发布约定：tag 必须与 build.gradle.kts 的 version 一致（如 v5.4.0 ↔ 5.4.0），
+#    需在仓库 Settings → Secrets and variables → Actions 配置 JETBRAINS_MARKETPLACE_TOKEN
+#    （token 于 Marketplace 个人资料页生成：Settings → 登录；旧版入口 My Account → Plugin Publishing）
 
-# jobs:
-#   build:
-#     runs-on: ubuntu-latest
-    
-#     steps:
-#     - uses: actions/checkout@v4
-    
-#     - name: Setup Java
-#       uses: actions/setup-java@v4
-#       with:
-#         distribution: 'temurin'
-#         java-version: '17'
-    
-#     - name: Setup Gradle
-#       uses: gradle/actions/setup-gradle@v3
-    
-#     - name: Build Plugin
-#       run: ./gradlew buildPlugin
-    
-#     - name: Upload Plugin Artifact
-#       uses: actions/upload-artifact@v4
-#       with:
-#         name: nba-score-plugin
-#         path: build/distributions/*.zip
-    
-#     - name: Publish Plugin to Marketplace
-#       if: github.event_name == 'push'
-#       env:
-#         PUBLISH_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}
-#       run: |
-#         ./gradlew publishPlugin -PintellijPlatform.publishing.token=$PUBLISH_TOKEN
-    
-#     - name: Create Release
-#       if: github.event_name == 'push'
-#       uses: softprops/action-gh-release@v1
-#       with:
-#         tag_name: v1.0.${{ github.run_number }}
-#         name: NBA Live Score v1.0.${{ github.run_number }}
-#         files: build/distributions/*.zip
-#       env:
-#         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle（带依赖缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Plugin
+        run: |
+          chmod +x gradlew
+          ./gradlew buildPlugin --no-daemon --console=plain
+
+      - name: Upload Plugin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nba-score-plugin-${{ github.event.pull_request.number || github.run_number }}
+          path: build/distributions/*.zip
+          retention-days: 14
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle（带依赖缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      # 防呆：tag 必须与项目版本一致才发布（缺一不可的三处版本同步里，tag 是发布入口）
+      - name: 校验 tag 与版本一致
+        run: |
+          VERSION=$(grep -E '^version = "[0-9.]+"' build.gradle.kts | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "tag=$TAG version=$VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::tag v$TAG 与 build.gradle.kts 版本 $VERSION 不一致，请同步后再发布"
+            exit 1
+          fi
+
+      - name: Publish to JetBrains Marketplace
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        run: |
+          chmod +x gradlew
+          ./gradlew publishPlugin --no-daemon --console=plain
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NBA Live Score ${{ github.ref_name }}
+          files: build/distributions/*.zip
