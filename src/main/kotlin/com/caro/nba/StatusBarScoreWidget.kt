@@ -155,7 +155,8 @@ class StatusBarScoreWidget(private val project: Project) : CustomStatusBarWidget
         panel.isVisible = true
         label.isVisible = true
         toolbar.component.isVisible = currentMode() != "stealth"
-        toolbar.updateActionsImmediately()
+        // updateActionsImmediately 已废弃，官方替代为 updateActionsAsync（异步工具栏本就是延迟生效）
+        toolbar.updateActionsAsync()
         if (games.size > 1) carouselTimer.start() else carouselTimer.stop()
     }
 

@@ -55,6 +55,10 @@
     </extensions>
 
     <change-notes><![CDATA[
+        <h3>5.4.1</h3>
+        <ul>
+            <li>修复：替换已废弃与内部 API（ActionToolbar.updateActionsImmediately → updateActionsAsync、PluginManagerCore.getPlugin → PluginManager.findEnabledPlugin），消除新版 IDE 兼容性告警，无功能变化</li>
+        </ul>
         <h3>5.4.0</h3>
         <ul>
             <li>新增：状态栏常驻比分——关注球队的比赛每 5 秒轮播，支持手动切换、立即刷新，点击唤起主面板</li>

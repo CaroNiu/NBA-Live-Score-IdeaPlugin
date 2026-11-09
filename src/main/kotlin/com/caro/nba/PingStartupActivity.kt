@@ -1,6 +1,6 @@
 package com.caro.nba
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -38,7 +38,8 @@ class PingStartupActivity : ProjectActivity {
         val url = settings.pingUrl.trim()
         if (url.isEmpty()) return
 
-        val version = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version ?: "unknown"
+        // findEnabledPlugin 为公开 API（PluginManagerCore.getPlugin 是 internal，Marketplace 验证器会告警）
+        val version = PluginManager.getInstance().findEnabledPlugin(PluginId.getId(PLUGIN_ID))?.version ?: "unknown"
         val separator = if (url.contains('?')) "&" else "?"
         val request = Request.Builder().url("$url${separator}v=$version").build()
 
