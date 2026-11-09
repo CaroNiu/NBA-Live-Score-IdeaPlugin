@@ -1,0 +1,4 @@
+# Windows 下编辑产生的 CRLF 会在 Linux CI 的 bash run 块中报错，统一强制 LF
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
