@@ -34,8 +34,29 @@ object ShareImageGenerator {
     private const val W = 1000
     private const val H = 520
 
-    /** 底部水印（传播锚点：仓库名） */
-    private const val WATERMARK = "NBA Live Score · IDEA 插件   |   github.com/CaroNiu/NBA-Live-Score-IdeaPlugin"
+    /** 默认底部水印（传播锚点：仓库名），可被设置里的自定义文案替代 */
+    private const val DEFAULT_WATERMARK = "NBA Live Score · IDEA 插件   |   github.com/CaroNiu/NBA-Live-Score-IdeaPlugin"
+
+    /**
+     * 分享图主题（色板）
+     * @param id 存储标识（settings.shareImageTheme）
+     */
+    data class ShareTheme(
+        val id: String,
+        val displayName: String,
+        val gradTop: Color,
+        val gradBottom: Color
+    )
+
+    /** 内置三套主题 */
+    val THEMES = listOf(
+        ShareTheme("night", "暗夜（默认）", Color(0x0F, 0x20, 0x27), Color(0x2C, 0x53, 0x64)),
+        ShareTheme("sunset", "落日", Color(0x35, 0x5C, 0x7D), Color(0xC0, 0x6C, 0x84)),
+        ShareTheme("christmas", "圣诞", Color(0x0B, 0x3D, 0x2E), Color(0x7B, 0x11, 0x13))
+    )
+
+    /** 按 id 取主题，未知值回退暗夜 */
+    fun themeById(id: String): ShareTheme = THEMES.firstOrNull { it.id == id } ?: THEMES.first()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -50,15 +71,19 @@ object ShareImageGenerator {
     private val fontBadge = Font("Microsoft YaHei", Font.BOLD, 24)
     private val fontWatermark = Font("Microsoft YaHei", Font.PLAIN, 16)
 
-    /** 生成分享图（后台线程调用：含 logo 网络加载） */
-    fun generate(game: NBAGame, dateLabel: String): BufferedImage {
+    /**
+     * 生成分享图（后台线程调用：含 logo 网络加载）
+     * @param theme 配色主题（settings.shareImageTheme）
+     * @param watermark 自定义水印文案，空则用默认仓库水印
+     */
+    fun generate(game: NBAGame, dateLabel: String, theme: ShareTheme = THEMES.first(), watermark: String = ""): BufferedImage {
         val img = BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB)
         val g = img.createGraphics()
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-        // 深色渐变背景（深蓝夜场配色）
-        g.paint = GradientPaint(0f, 0f, Color(0x0F, 0x20, 0x27), W.toFloat(), H.toFloat(), Color(0x2C, 0x53, 0x64))
+        // 主题渐变背景
+        g.paint = GradientPaint(0f, 0f, theme.gradTop, W.toFloat(), H.toFloat(), theme.gradBottom)
         g.fillRect(0, 0, W, H)
 
         // 顶部：日期（左）与品牌（右）
@@ -97,10 +122,11 @@ object ShareImageGenerator {
         g.color = Color(255, 255, 255, 230)
         g.drawString(badge, (W - g.fontMetrics.stringWidth(badge)) / 2, cy + 78 + 36)
 
-        // 底部水印
+        // 底部水印（自定义文案优先，trim 后为空回退默认）
+        val wm = watermark.trim().ifEmpty { DEFAULT_WATERMARK }
         g.font = fontWatermark
         g.color = Color(255, 255, 255, 110)
-        g.drawString(WATERMARK, (W - g.fontMetrics.stringWidth(WATERMARK)) / 2, H - 28)
+        g.drawString(wm, (W - g.fontMetrics.stringWidth(wm)) / 2, H - 28)
 
         g.dispose()
         return img

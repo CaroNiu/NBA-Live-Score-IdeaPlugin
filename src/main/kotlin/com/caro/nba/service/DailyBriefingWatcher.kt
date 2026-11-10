@@ -77,9 +77,10 @@ object DailyBriefingWatcher {
         }
     }
 
-    /** 单次检查：当天未发过且开关开启 → 拉数据发通知并置位 */
+    /** 单次检查：连胜里程碑（受 notifyEnabled 控制）+ 当天未发过的晨间提醒 */
     private fun checkOnce() {
         val settings = NBASettingsState.getInstance()
+        checkStreakMilestones(settings)
         if (!settings.scheduleReminderEnabled && !settings.dailyReportEnabled) return
         val today = LocalDate.now()
         val todayStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -99,6 +100,40 @@ object DailyBriefingWatcher {
         }
 
         settings.lastBriefingDate = todayStr
+    }
+
+    /**
+     * 连胜/连败里程碑：关注球队跨入 ≥5 场区间时提醒一次（类型切换或从低位升入均算跨入）。
+     * 数据复用排名接口的 streak 字段（"W5"/"L3"），每天检查一次即可（连胜是慢变量）。
+     */
+    private fun checkStreakMilestones(settings: NBASettingsState) {
+        if (!settings.notifyEnabled) return
+        val followed = settings.followedTeams.toSet()
+        if (followed.isEmpty()) return
+        val standings = StandingsService().getStandingsWithSource().first.getOrNull() ?: return
+        val all = standings.eastern.teams + standings.western.teams
+
+        for (team in all) {
+            if (team.teamName !in followed) continue
+            val streak = team.streak
+            val type = streak.firstOrNull()?.toString() ?: continue
+            val n = streak.drop(1).toIntOrNull() ?: continue
+            if (n < 5) continue
+
+            val snapshot = settings.teamStreakSnapshot[team.teamName] ?: ""
+            val oldType = snapshot.firstOrNull()?.toString() ?: ""
+            val oldN = snapshot.drop(1).toIntOrNull() ?: 0
+            // 跨入判定：类型切换（W↔L，新一轮）或快照数值 <5（首次升入）
+            val crossed = type != oldType || oldN < 5
+            if (!crossed) continue
+
+            settings.teamStreakSnapshot[team.teamName] = streak
+            if (type == "W") {
+                notifyInfo("连胜里程碑", "🔥 ${team.teamName} 已 ${n} 连胜（${team.wins}胜${team.losses}负），状态火热！")
+            } else {
+                notifyInfo("连败里程碑", "❄️ ${team.teamName} 遭遇 ${n} 连败（${team.wins}胜${team.losses}负），盼触底反弹")
+            }
+        }
     }
 
     // ---------------- 两类通知 ----------------

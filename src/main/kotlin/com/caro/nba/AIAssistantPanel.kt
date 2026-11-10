@@ -386,6 +386,16 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     /** Marketplace 评分引导已提示过（只提示一次，出现即置位防纠缠） */
     var ratingPromptShown: Boolean = false
 
+    // ===== 分享图 =====
+    /** 分享图主题（night 暗夜 / sunset 落日 / christmas 圣诞） */
+    var shareImageTheme: String = "night"
+    /** 分享图自定义水印文案（空 = 默认仓库水印） */
+    var shareImageWatermark: String = ""
+
+    // ===== 连胜/连败里程碑 =====
+    /** 关注球队上次通知过的连胜快照（team -> "W5"/"L3"），跨入 ≥5 区间时发一次 */
+    var teamStreakSnapshot: MutableMap<String, String> = mutableMapOf()
+
     companion object {
         fun getInstance(): NBASettingsState {
             return ApplicationManager.getApplication().getService(NBASettingsState::class.java)
@@ -417,6 +427,9 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.installDate = state.installDate
         this.onboardingDone = state.onboardingDone
         this.ratingPromptShown = state.ratingPromptShown
+        this.shareImageTheme = state.shareImageTheme
+        this.shareImageWatermark = state.shareImageWatermark
+        this.teamStreakSnapshot = state.teamStreakSnapshot
     }
 }
 
@@ -444,6 +457,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
     private var dailyReportCheckBox: JCheckBox? = null
     private var pingCheckBox: JCheckBox? = null
     private var pingUrlField: JTextField? = null
+    private var shareThemeCombo: JComboBox<String>? = null
+    private var shareWatermarkField: JTextField? = null
 
     // 可用数据源列表（与 DataSource 枚举保持一致，按推荐优先级排序）
     private val dataSourceOptions = listOf(
@@ -572,8 +587,28 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             panel.add(it, gbc)
         }
 
+        // 分享图主题
+        gbc.gridx = 0; gbc.gridy = 9; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JLabel("分享图主题:"), gbc)
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        shareThemeCombo = JComboBox(ShareImageGenerator.THEMES.map { it.displayName }.toTypedArray()).also { combo ->
+            val idx = ShareImageGenerator.THEMES.indexOfFirst { it.id == settings.shareImageTheme }
+            combo.selectedIndex = idx.coerceAtLeast(0)
+            combo.toolTipText = "生成比分分享图的配色主题（比赛卡片右键 → 生成分享图）"
+            panel.add(combo, gbc)
+        }
+
+        // 分享图水印
+        gbc.gridx = 0; gbc.gridy = 10; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(JLabel("分享图水印:"), gbc)
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        shareWatermarkField = JTextField(settings.shareImageWatermark, 40).also {
+            it.toolTipText = "分享图底部水印文案；留空显示默认仓库地址（适合放个人签名/社群名）"
+            panel.add(it, gbc)
+        }
+
         // 说明
-        gbc.gridx = 0; gbc.gridy = 9; gbc.gridwidth = 3; gbc.insets = Insets(15, 5, 5, 5)
+        gbc.gridx = 0; gbc.gridy = 11; gbc.gridwidth = 3; gbc.insets = Insets(15, 5, 5, 5)
         panel.add(JLabel("""
             <html><body style='width:520px'>
             <b>关注与提醒说明：</b><br>
@@ -694,7 +729,9 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
                scheduleReminderCheckBox?.isSelected != settings.scheduleReminderEnabled ||
                dailyReportCheckBox?.isSelected != settings.dailyReportEnabled ||
                pingCheckBox?.isSelected != settings.anonymousPing ||
-               pingUrlField?.text != settings.pingUrl
+               pingUrlField?.text != settings.pingUrl ||
+               selectedShareThemeId() != settings.shareImageTheme ||
+               shareWatermarkField?.text != settings.shareImageWatermark
     }
 
     /** 关注球队列表是否被编辑过 */
@@ -754,6 +791,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         settings.dailyReportEnabled = dailyReportCheckBox?.isSelected ?: true
         settings.anonymousPing = pingCheckBox?.isSelected ?: false
         settings.pingUrl = pingUrlField?.text ?: ""
+        settings.shareImageTheme = selectedShareThemeId()
+        settings.shareImageWatermark = shareWatermarkField?.text ?: ""
 
         // 关注配置变化即时生效：清通知快照、按新节奏重启轮询
         if (followChanged) {
@@ -785,5 +824,12 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         dailyReportCheckBox?.isSelected = settings.dailyReportEnabled
         pingCheckBox?.isSelected = settings.anonymousPing
         pingUrlField?.text = settings.pingUrl
+        shareThemeCombo?.selectedIndex = ShareImageGenerator.THEMES.indexOfFirst { it.id == settings.shareImageTheme }
+            .coerceAtLeast(0)
+        shareWatermarkField?.text = settings.shareImageWatermark
     }
+
+    /** 分享图主题下拉当前选中项 → 存储标识 */
+    private fun selectedShareThemeId(): String =
+        ShareImageGenerator.THEMES.getOrNull(shareThemeCombo?.selectedIndex ?: 0)?.id ?: "night"
 }

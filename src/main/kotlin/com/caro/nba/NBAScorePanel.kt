@@ -517,11 +517,12 @@ class NBAScorePanel(
         gbc.fill = GridBagConstraints.HORIZONTAL
         gbc.insets = Insets(2, 5, 2, 5)
         
-        // 客队名称
+        // 客队名称（可点击查看球队赛程）
         gbc.gridx = 0; gbc.gridy = 0
         gbc.weightx = 1.0
         scorePanel.add(JLabel(game.awayTeam.name).apply {
             font = font.deriveFont(Font.BOLD, 12f)
+            setupTeamNameClick(this, game.awayTeam.abbreviation)
         }, gbc)
         
         // VS
@@ -532,11 +533,12 @@ class NBAScorePanel(
             font = font.deriveFont(10f)
         }, gbc)
         
-        // 主队名称
+        // 主队名称（可点击查看球队赛程）
         gbc.gridx = 2
         gbc.weightx = 1.0
         scorePanel.add(JLabel(game.homeTeam.name).apply {
             font = font.deriveFont(Font.BOLD, 12f)
+            setupTeamNameClick(this, game.homeTeam.abbreviation)
         }, gbc)
         
         // 客队比分
@@ -611,6 +613,32 @@ class NBAScorePanel(
         menu.show(card, 20, 20)
     }
 
+    /** 队名 label 可点击 → 球队赛程弹窗（consume 阻止冒泡到卡片的「查看详情」） */
+    private fun setupTeamNameClick(label: JLabel, abbr: String) {
+        if (abbr.isBlank()) return
+        label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        label.toolTipText = "点击查看该队近况与后续赛程"
+        label.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                e?.consume()
+                showTeamSchedule(abbr)
+            }
+        })
+    }
+
+    /** 球队赛程弹窗（ESPN 赛程，后台协程拉取后 EDT 展示） */
+    private fun showTeamSchedule(abbr: String) {
+        scope.launch {
+            val result = com.caro.nba.service.LeagueLeadersService().teamSchedule(abbr)
+            ApplicationManager.getApplication().invokeLater {
+                result.fold(
+                    onSuccess = { TeamScheduleDialog(project, it).show() },
+                    onFailure = { showError("赛程加载失败：ESPN 暂不可达，请稍后重试") }
+                )
+            }
+        }
+    }
+
     /**
      * 生成分享图并在预览对话框展示（同时复制到剪贴板）。
      * 线程模型与面板一致：logo 网络加载在协程（Default），生成结果经 invokeLater 回 EDT 弹窗。
@@ -618,7 +646,15 @@ class NBAScorePanel(
     private fun showSharePreview(game: NBAGame) {
         scope.launch {
             val dateLabel = selectedDate.format(java.time.format.DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.CHINA))
-            val image = runCatching { ShareImageGenerator.generate(game, dateLabel) }.getOrNull()
+            val settings = NBASettingsState.getInstance()
+            val image = runCatching {
+                ShareImageGenerator.generate(
+                    game,
+                    dateLabel,
+                    ShareImageGenerator.themeById(settings.shareImageTheme),
+                    settings.shareImageWatermark
+                )
+            }.getOrNull()
             ApplicationManager.getApplication().invokeLater {
                 if (image == null) {
                     showError("分享图生成失败（队徽网络加载异常），请稍后重试")
