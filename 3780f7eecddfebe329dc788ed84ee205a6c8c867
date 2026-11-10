@@ -1,0 +1,39 @@
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 69-70,372,393-408,410-419,421,432-433,435-450,452-455,457-461,477,480-484,605-612,614-631
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 56-57,59-60,64-72
+src/main/kotlin/com/caro/nba/RatingPromptActivity.kt
+  be6a0df5a778d18e 1-66
+src/main/kotlin/com/caro/nba/PingStartupActivity.kt
+  be6a0df5a778d18e 38-41
+src/main/kotlin/com/caro/nba/ShareImageDialog.kt
+  be6a0df5a778d18e 1-36
+src/main/kotlin/com/caro/nba/AIAssistantPanel.kt
+  be6a0df5a778d18e 373-379,381-387,414-419,443-444,554-561,567,576,583,694-695,753-754,784-785
+src/main/kotlin/com/caro/nba/service/DailyBriefingWatcher.kt
+  be6a0df5a778d18e 1-170
+src/main/kotlin/com/caro/nba/ShareImageGenerator.kt
+  be6a0df5a778d18e 1-163
+build.gradle.kts
+  be6a0df5a778d18e 11,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "3780f7eecddfebe329dc788ed84ee205a6c8c867",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 2302,
+      "total_deletions": 1700,
+      "accepted_lines": 2104,
+      "overriden_lines": 90
+    }
+  }
+}
