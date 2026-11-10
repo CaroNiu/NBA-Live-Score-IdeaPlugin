@@ -370,6 +370,22 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     /** 匿名统计上报接口地址（完整 URL，部署后自行填写；留空则不请求） */
     var pingUrl: String = ""
 
+    // ===== 晨间提醒 =====
+    /** 今日关注球队赛程提醒（晨间一条「今晚 8:00 湖人 vs 勇士」） */
+    var scheduleReminderEnabled: Boolean = true
+    /** 每日战报（晨间一条「昨日赛果摘要 + 今日场次数」） */
+    var dailyReportEnabled: Boolean = true
+    /** 最近一次发出晨间提醒的本地日期（yyyy-MM-dd），当天不重复发送 */
+    var lastBriefingDate: String = ""
+
+    // ===== 增长与引导 =====
+    /** 首次启动日期（yyyy-MM-dd），Marketplace 评分引导计时用 */
+    var installDate: String = ""
+    /** 首次打开引导已完成（不再显示欢迎引导卡） */
+    var onboardingDone: Boolean = false
+    /** Marketplace 评分引导已提示过（只提示一次，出现即置位防纠缠） */
+    var ratingPromptShown: Boolean = false
+
     companion object {
         fun getInstance(): NBASettingsState {
             return ApplicationManager.getApplication().getService(NBASettingsState::class.java)
@@ -395,6 +411,12 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.notifyEnabled = state.notifyEnabled
         this.anonymousPing = state.anonymousPing
         this.pingUrl = state.pingUrl
+        this.scheduleReminderEnabled = state.scheduleReminderEnabled
+        this.dailyReportEnabled = state.dailyReportEnabled
+        this.lastBriefingDate = state.lastBriefingDate
+        this.installDate = state.installDate
+        this.onboardingDone = state.onboardingDone
+        this.ratingPromptShown = state.ratingPromptShown
     }
 }
 
@@ -418,6 +440,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
     private var statusBarCheckBox: JCheckBox? = null
     private var displayModeCombo: JComboBox<String>? = null
     private var notifyCheckBox: JCheckBox? = null
+    private var scheduleReminderCheckBox: JCheckBox? = null
+    private var dailyReportCheckBox: JCheckBox? = null
     private var pingCheckBox: JCheckBox? = null
     private var pingUrlField: JTextField? = null
 
@@ -527,12 +551,20 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             panel.add(it, gbc)
         }
         gbc.gridy = 5
+        scheduleReminderCheckBox = JCheckBox("今日赛程提醒（IDE 打开后推送关注球队今天的比赛及开球时刻，每天一次）", settings.scheduleReminderEnabled).also {
+            panel.add(it, gbc)
+        }
+        gbc.gridy = 6
+        dailyReportCheckBox = JCheckBox("每日战报（晨间推送昨日赛果摘要 + 今日场次数，每天一次）", settings.dailyReportEnabled).also {
+            panel.add(it, gbc)
+        }
+        gbc.gridy = 7
         pingCheckBox = JCheckBox("匿名统计（默认关闭）：启动时仅上报插件版本，不采集任何机器或使用信息", settings.anonymousPing).also {
             panel.add(it, gbc)
         }
 
         // ping URL
-        gbc.gridy = 6; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        gbc.gridy = 8; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
         panel.add(JLabel("上报地址:"), gbc)
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         pingUrlField = JTextField(settings.pingUrl, 40).also {
@@ -541,13 +573,14 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         }
 
         // 说明
-        gbc.gridx = 0; gbc.gridy = 7; gbc.gridwidth = 3; gbc.insets = Insets(15, 5, 5, 5)
+        gbc.gridx = 0; gbc.gridy = 9; gbc.gridwidth = 3; gbc.insets = Insets(15, 5, 5, 5)
         panel.add(JLabel("""
             <html><body style='width:520px'>
             <b>关注与提醒说明：</b><br>
             • 关注球队后，比赛进行中每 15 秒自动轮询比分（其余时间 60 秒等待开赛）<br>
             • 状态栏 widget 只显示「焦点比赛」：优先进行中的场次，其次最近的未开始场次<br>
             • 通知每场比赛每类只提醒一次；分差回到 8 分以上后再次胶着不再重复提醒<br>
+            • 晨间提醒（赛程/战报）每天只发一次，数据拉取失败会在下次启动/整点后自动重试<br>
             • 匿名统计完全自愿开启，仅请求一次上报地址（附带插件版本号），失败静默
             </body></html>
         """.trimIndent()), gbc)
@@ -658,6 +691,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
                statusBarCheckBox?.isSelected != settings.statusBarEnabled ||
                selectedDisplayMode() != settings.displayMode ||
                notifyCheckBox?.isSelected != settings.notifyEnabled ||
+               scheduleReminderCheckBox?.isSelected != settings.scheduleReminderEnabled ||
+               dailyReportCheckBox?.isSelected != settings.dailyReportEnabled ||
                pingCheckBox?.isSelected != settings.anonymousPing ||
                pingUrlField?.text != settings.pingUrl
     }
@@ -715,6 +750,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
         settings.statusBarEnabled = statusBarCheckBox?.isSelected ?: true
         settings.displayMode = selectedDisplayMode()
         settings.notifyEnabled = notifyCheckBox?.isSelected ?: true
+        settings.scheduleReminderEnabled = scheduleReminderCheckBox?.isSelected ?: true
+        settings.dailyReportEnabled = dailyReportCheckBox?.isSelected ?: true
         settings.anonymousPing = pingCheckBox?.isSelected ?: false
         settings.pingUrl = pingUrlField?.text ?: ""
 
@@ -744,6 +781,8 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             else -> 0
         }
         notifyCheckBox?.isSelected = settings.notifyEnabled
+        scheduleReminderCheckBox?.isSelected = settings.scheduleReminderEnabled
+        dailyReportCheckBox?.isSelected = settings.dailyReportEnabled
         pingCheckBox?.isSelected = settings.anonymousPing
         pingUrlField?.text = settings.pingUrl
     }

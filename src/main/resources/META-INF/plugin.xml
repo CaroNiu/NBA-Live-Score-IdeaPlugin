@@ -52,9 +52,24 @@
 
         <!-- 匿名统计上报（opt-in，默认关闭，见设置页「关注与提醒」） -->
         <postStartupActivity implementation="com.caro.nba.PingStartupActivity"/>
+
+        <!-- 晨间提醒（今日关注赛程 + 每日战报，每天一次，见设置页「关注与提醒」） -->
+        <postStartupActivity implementation="com.caro.nba.service.DailyBriefingActivity"/>
+
+        <!-- Marketplace 评分引导（使用满 7 天温和提示一次） -->
+        <postStartupActivity implementation="com.caro.nba.RatingPromptActivity"/>
     </extensions>
 
     <change-notes><![CDATA[
+        <h3>5.5.0</h3>
+        <ul>
+            <li>新增：今日赛程提醒——IDE 打开后推送关注球队今天的比赛与本地开球时刻，每天一次</li>
+            <li>新增：每日战报——晨间推送昨日赛果摘要与今日场次数，不追每场比赛也有每日打开的理由</li>
+            <li>新增：比分分享图——比赛卡右键一键生成精美深色卡片（队徽、比分、状态徽章、水印），自动复制到剪贴板，直接粘贴到微信/QQ/微博</li>
+            <li>新增：首次打开引导——欢迎介绍与关注球队引导（仅新用户显示，老用户升级零打扰）</li>
+            <li>新增：Marketplace 评分引导——使用满 7 天温和提示一次评分</li>
+            <li>优化：设置页「关注与提醒」新增赛程提醒与每日战报开关</li>
+        </ul>
         <h3>5.4.1</h3>
         <ul>
             <li>修复：替换已废弃与内部 API（ActionToolbar.updateActionsImmediately → updateActionsAsync、PluginManagerCore.getPlugin → PluginManager.findEnabledPlugin），消除新版 IDE 兼容性告警，无功能变化</li>

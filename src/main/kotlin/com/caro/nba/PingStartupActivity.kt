@@ -34,6 +34,12 @@ class PingStartupActivity : ProjectActivity {
 
     override suspend fun execute(project: Project) {
         val settings = NBASettingsState.getInstance()
+
+        // 首次启动记录安装日期（评分引导计时用；与匿名统计开关无关，均需记录）
+        if (settings.installDate.isEmpty()) {
+            settings.installDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        }
+
         if (!settings.anonymousPing) return
         val url = settings.pingUrl.trim()
         if (url.isEmpty()) return

@@ -66,6 +66,9 @@ class NBAScorePanel(
     // 防止重复初始化
     private var isDataLoaded = false
 
+    /** 首次打开引导卡（仅 followedTeams 为空且未完成引导的新用户显示；完成引导后由 loadGames 重建列表自然移除） */
+    private var onboardingCard: JPanel? = null
+
     init {
         setupUI()
         // 延迟加载数据，避免插件打开时卡顿
@@ -365,7 +368,9 @@ class NBAScorePanel(
      */
     private fun updateGamesPanel(scoreboard: NBAScoreboard) {
         gamesPanel.removeAll()
-        
+
+        maybeShowOnboarding()
+
         if (scoreboard.games.isEmpty()) {
             val emptyPanel = JPanel()
             emptyPanel.layout = BoxLayout(emptyPanel, BoxLayout.Y_AXIS)
@@ -384,7 +389,77 @@ class NBAScorePanel(
         gamesPanel.revalidate()
         gamesPanel.repaint()
     }
-    
+
+    /**
+     * 首次打开引导：followedTeams 为空且未完成引导时，在比赛列表顶部显示欢迎引导卡。
+     * 老用户（已关注球队）升级后零打扰；点击任一按钮置 onboardingDone 后经 loadGames 移除。
+     */
+    private fun maybeShowOnboarding() {
+        val settings = NBASettingsState.getInstance()
+        if (settings.onboardingDone || settings.followedTeams.isNotEmpty()) {
+            onboardingCard = null
+            return
+        }
+        if (onboardingCard != null) return
+        val card = createOnboardingCard()
+        onboardingCard = card
+        gamesPanel.add(card)
+        gamesPanel.add(Box.createVerticalStrut(8))
+    }
+
+    /** 构建欢迎引导卡：价值介绍 + [选择关注球队] / [开始使用] */
+    private fun createOnboardingCard(): JPanel {
+        val card = JPanel(BorderLayout(8, 8))
+        card.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor(0x0066CC, 0x4A9EFF), 1),
+            JBUI.Borders.empty(12)
+        )
+        card.background = UIManager.getColor("Panel.background") ?: JBColor.PanelBackground
+        card.maximumSize = Dimension(Int.MAX_VALUE, 180)
+        card.alignmentX = Component.CENTER_ALIGNMENT
+
+        val text = JLabel(
+            """
+            <html><body style='width:300px'>
+            <b>👋 欢迎使用 NBA Live Score！</b><br>
+            关注你的主队，即可获得：<br>
+            • IDE 底部状态栏常驻实时比分<br>
+            • 开赛 / 关键分 / 完赛气泡提醒<br>
+            • 每日赛程提醒与战报推送<br>
+            <span style='color:gray'>第一步：选择关注球队（也可稍后在设置中配置）</span>
+            </body></html>
+            """.trimIndent()
+        )
+        text.font = text.font.deriveFont(12f)
+
+        val btnRow = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply { isOpaque = false }
+        val skipBtn = JButton("开始使用")
+        val settingsBtn = JButton("选择关注球队")
+        skipBtn.addActionListener {
+            finishOnboarding()
+            loadGames()  // 重建列表：移除引导卡
+        }
+        settingsBtn.addActionListener {
+            finishOnboarding()
+            // 打开本插件设置页（模态），返回后刷新列表
+            com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                .editConfigurable(project, NBASettingsConfigurable())
+            loadGames()
+        }
+        btnRow.add(skipBtn)
+        btnRow.add(settingsBtn)
+
+        card.add(text, BorderLayout.CENTER)
+        card.add(btnRow, BorderLayout.SOUTH)
+        return card
+    }
+
+    /** 完成引导：置标记并清引用；引导卡的移除由随后的 loadGames 重建列表完成 */
+    private fun finishOnboarding() {
+        NBASettingsState.getInstance().onboardingDone = true
+        onboardingCard = null
+    }
+
     /**
      * 创建比赛卡片
      */
@@ -399,10 +474,14 @@ class NBAScorePanel(
         card.maximumSize = Dimension(Int.MAX_VALUE, 100)
         card.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         
-        // 点击打开详情页面
+        // 左键点击打开详情页面；右键弹出菜单（生成分享图）
         card.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent?) {
-                showGameDetail(game)
+                if (e != null && javax.swing.SwingUtilities.isRightMouseButton(e)) {
+                    showShareMenu(card, game)
+                } else {
+                    showGameDetail(game)
+                }
             }
         })
         
@@ -523,6 +602,34 @@ class NBAScorePanel(
         return card
     }
     
+    /** 比赛卡片右键菜单：生成分享图 */
+    private fun showShareMenu(card: JPanel, game: NBAGame) {
+        val menu = javax.swing.JPopupMenu()
+        menu.add(javax.swing.JMenuItem("📸 生成分享图").apply {
+            addActionListener { showSharePreview(game) }
+        })
+        menu.show(card, 20, 20)
+    }
+
+    /**
+     * 生成分享图并在预览对话框展示（同时复制到剪贴板）。
+     * 线程模型与面板一致：logo 网络加载在协程（Default），生成结果经 invokeLater 回 EDT 弹窗。
+     */
+    private fun showSharePreview(game: NBAGame) {
+        scope.launch {
+            val dateLabel = selectedDate.format(java.time.format.DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.CHINA))
+            val image = runCatching { ShareImageGenerator.generate(game, dateLabel) }.getOrNull()
+            ApplicationManager.getApplication().invokeLater {
+                if (image == null) {
+                    showError("分享图生成失败（队徽网络加载异常），请稍后重试")
+                    return@invokeLater
+                }
+                ShareImageGenerator.copyToClipboard(image)
+                ShareImageDialog(project, image).show()
+            }
+        }
+    }
+
     /**
      * 构建跨源反查引用：各数据源 gameId 不通用，
      * 附上「归属源+美东日期+队名缩写」供详情/文字转播跨源定位同一场比赛
