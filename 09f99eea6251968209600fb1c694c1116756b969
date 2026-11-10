@@ -1,0 +1,51 @@
+src/main/kotlin/com/caro/nba/datasource/impl/Zhibo8LeaderDataSource.kt
+  be6a0df5a778d18e 1-156
+src/main/kotlin/com/caro/nba/service/LeagueLeadersService.kt
+  be6a0df5a778d18e 1-36
+src/main/kotlin/com/caro/nba/TeamScheduleDialog.kt
+  be6a0df5a778d18e 1-139
+src/main/kotlin/com/caro/nba/ShareImageGenerator.kt
+  be6a0df5a778d18e 37-59,74-79,85-86,125-126,129
+src/main/kotlin/com/caro/nba/LeagueLeadersPanel.kt
+  be6a0df5a778d18e 1-241
+src/main/kotlin/com/caro/nba/datasource/impl/EspnStatsDataSource.kt
+  be6a0df5a778d18e 1-240
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-71
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 520,525,536,541,616-627,629-640,649-657
+src/main/kotlin/com/caro/nba/model/NBALeader.kt
+  be6a0df5a778d18e 1-33
+src/main/kotlin/com/caro/nba/NBAScoreToolWindowFactory.kt
+  be6a0df5a778d18e 39-40,47,56,59,75,82,114,186-188
+src/main/kotlin/com/caro/nba/model/NBATeamSchedule.kt
+  be6a0df5a778d18e 1-24
+src/main/kotlin/com/caro/nba/service/DailyBriefingWatcher.kt
+  be6a0df5a778d18e 80,83,105-136
+build.gradle.kts
+  be6a0df5a778d18e 11,38
+README.md
+  be6a0df5a778d18e 1,8-11,16,18,20,22,24,26-36,38,40-43,45,47,49,51,53,55,57,59,61,63,65,67-76,78,80-85,87
+src/main/kotlin/com/caro/nba/AIAssistantPanel.kt
+  be6a0df5a778d18e 389-393,395-397,430-432,460-461,590-599,601-608,611,732-734,794-795,827-829,832-834
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "09f99eea6251968209600fb1c694c1116756b969",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 3588,
+      "total_deletions": 2571,
+      "accepted_lines": 3313,
+      "overriden_lines": 95
+    }
+  }
+}
