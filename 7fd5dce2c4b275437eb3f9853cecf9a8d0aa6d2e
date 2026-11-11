@@ -1,0 +1,29 @@
+src/main/kotlin/com/caro/nba/AIAssistantPanel.kt
+  be6a0df5a778d18e 370-371,400-402,580
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-67
+build.gradle.kts
+  be6a0df5a778d18e 11,39
+src/main/kotlin/com/caro/nba/PingStartupActivity.kt
+  be6a0df5a778d18e 16,20-22,44-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "7fd5dce2c4b275437eb3f9853cecf9a8d0aa6d2e",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 2472,
+      "total_deletions": 2459,
+      "accepted_lines": 1830,
+      "overriden_lines": 0
+    }
+  }
+}
