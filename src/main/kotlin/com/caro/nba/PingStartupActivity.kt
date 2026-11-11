@@ -13,12 +13,13 @@ import java.util.concurrent.TimeUnit
 /**
  * 匿名统计上报（opt-in，默认关闭）
  *
- * 用户在设置页勾选「匿名统计」并填写上报地址后，IDE 打开项目时异步 GET 一次
+ * 用户在设置页勾选「匿名统计」后，IDE 打开项目时异步 GET 一次
  * `{pingUrl}?v={插件版本}`，仅此一个请求，失败静默。
  *
  * 隐私边界（设计承诺，勿破坏）：
- * - 只上报插件 id + 版本号（URL query 参数），不采集机器信息、项目信息、使用行为
- * - 上报地址由用户自行部署/填写，插件不内置任何收集端点
+ * - 只上报插件版本号（URL query 参数），不采集机器信息、项目信息、使用行为
+ * - 端点为开发者官方 Worker（NBASettingsState.DEFAULT_PING_URL），开关默认关闭，勾选即视为同意
+ * - 老用户存量空地址由启动兜底补默认；用户自定义的非空地址优先于默认值
  */
 class PingStartupActivity : ProjectActivity {
 
@@ -38,6 +39,11 @@ class PingStartupActivity : ProjectActivity {
         // 首次启动记录安装日期（评分引导计时用；与匿名统计开关无关，均需记录）
         if (settings.installDate.isEmpty()) {
             settings.installDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        }
+
+        // 老用户存量空地址兜底：自动补官方端点（用户自定义的非空地址优先，不覆盖）
+        if (settings.pingUrl.isBlank()) {
+            settings.pingUrl = NBASettingsState.DEFAULT_PING_URL
         }
 
         if (!settings.anonymousPing) return

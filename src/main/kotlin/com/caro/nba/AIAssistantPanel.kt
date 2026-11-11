@@ -367,8 +367,8 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var notifyEnabled: Boolean = true
     /** 匿名统计上报（默认关闭）：启动时仅上报 pluginId + 版本号，不采集任何机器/使用信息 */
     var anonymousPing: Boolean = false
-    /** 匿名统计上报接口地址（完整 URL，部署后自行填写；留空则不请求） */
-    var pingUrl: String = ""
+    /** 匿名统计上报接口地址（开发者官方端点；老用户存量空值由 PingStartupActivity 启动兜底补默认） */
+    var pingUrl: String = DEFAULT_PING_URL
 
     // ===== 晨间提醒 =====
     /** 今日关注球队赛程提醒（晨间一条「今晚 8:00 湖人 vs 勇士」） */
@@ -397,6 +397,9 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var teamStreakSnapshot: MutableMap<String, String> = mutableMapOf()
 
     companion object {
+        /** 匿名统计官方端点（不带版本参数，插件启动时自动追加 ?v=当前版本） */
+        const val DEFAULT_PING_URL = "https://nba-ping.17686996800.workers.dev/ping"
+
         fun getInstance(): NBASettingsState {
             return ApplicationManager.getApplication().getService(NBASettingsState::class.java)
         }
@@ -574,7 +577,7 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             panel.add(it, gbc)
         }
         gbc.gridy = 7
-        pingCheckBox = JCheckBox("匿名统计（默认关闭）：启动时仅上报插件版本，不采集任何机器或使用信息", settings.anonymousPing).also {
+        pingCheckBox = JCheckBox("匿名统计（默认关闭）：勾选后启动时向开发者统计端点上报插件版本号，不采集任何机器或使用信息", settings.anonymousPing).also {
             panel.add(it, gbc)
         }
 
