@@ -137,10 +137,24 @@ class PlayByPlayPanel(
             font = font.deriveFont(Font.BOLD, 13f)
             foreground = JBColor.foreground()
         }
+        // 「📺 视频直播入口」：官方渠道导流（腾讯本场/CCTV5/咪咕/League Pass），合规边界见 WhereToWatchDialog
+        val whereToWatchLabel = JLabel("📺 视频直播入口").apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+            foreground = JBColor(0x0066CC, 0x4A9EFF)
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            toolTipText = "查看本场官方转播渠道（腾讯/CCTV5/咪咕/League Pass）"
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                    openWhereToWatch()
+                }
+            })
+        }
         val centerBox = Box.createHorizontalBox()
         centerBox.add(statusLabel)
         centerBox.add(Box.createHorizontalStrut(10))
         centerBox.add(gameTitleLabel)
+        centerBox.add(Box.createHorizontalStrut(10))
+        centerBox.add(whereToWatchLabel)
         toolbar.add(centerBox, BorderLayout.CENTER)
 
         sourceBadge = JLabel("").apply {
@@ -209,8 +223,7 @@ class PlayByPlayPanel(
         }
 
         val override = selectedSource()
-        scope.launch {
-            val (result, actualSource) = service.getPlayByPlay(
+        scope.launch {            val (result, actualSource) = service.getPlayByPlay(
                 gameId, homeTeamId, awayTeamId, gameRef, override
             )
             SwingUtilities.invokeLater {
@@ -455,6 +468,24 @@ class PlayByPlayPanel(
         add(infoLabel, BorderLayout.CENTER)
         revalidate()
         repaint()
+    }
+
+    /**
+     * 打开「视频直播入口」弹窗：优先匹配腾讯体育本场（官方比赛页），附 CCTV5/咪咕/League Pass 官方入口。
+     * 纯官方导流，不解析直播流（合规边界见 WhereToWatchDialog）。
+     */
+    private fun openWhereToWatch() {
+        scope.launch {
+            val ds = com.caro.nba.datasource.impl.TencentBroadcastDataSource()
+            val broadcast = ds.recentBroadcasts().getOrNull()
+                ?.let { ds.findBroadcast(it, awayTeamName, homeTeamName) }
+                ?.let { it.copy(isPay = ds.fetchIsPay(it.mid)) }
+            val channelText = ds.homepageChannels().getOrNull()
+                ?.firstOrNull { it.matches(awayTeamName, homeTeamName) }?.channelText ?: ""
+            javax.swing.SwingUtilities.invokeLater {
+                WhereToWatchDialog(null, broadcast, awayTeamName, homeTeamName, channelText).show()
+            }
+        }
     }
 
     /**

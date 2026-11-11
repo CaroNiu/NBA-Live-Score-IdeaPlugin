@@ -69,6 +69,10 @@ class NBAScorePanel(
     /** 首次打开引导卡（仅 followedTeams 为空且未完成引导的新用户显示；完成引导后由 loadGames 重建列表自然移除） */
     private var onboardingCard: JPanel? = null
 
+    /** 转播渠道标注（直播吧首页：队名对 → 渠道串如 "CCTV5 腾讯视频 全美直播"） */
+    @Volatile
+    private var channelList: List<com.caro.nba.model.NBABroadcast> = emptyList()
+
     init {
         setupUI()
         // 延迟加载数据，避免插件打开时卡顿
@@ -336,8 +340,16 @@ class NBAScorePanel(
             // 将用户选择的本地日期转换为美东日期进行API查询
             val queryDate = toEasternDate(selectedDate)
             DataSourceCommon.debugLog("加载比分: 本地日期=$selectedDate -> 美东查询日期=$queryDate")
-            val (result, source) = service.getGamesWithSource(queryDate)
+            // 并行：比赛数据 + 转播渠道标注（直播吧首页，独立请求互不阻塞）
+            val gamesDeferred = async { service.getGamesWithSource(queryDate) }
+            val channelsDeferred = async(Dispatchers.IO) {
+                runCatching {
+                    com.caro.nba.datasource.impl.TencentBroadcastDataSource().homepageChannels().getOrDefault(emptyList())
+                }.getOrDefault(emptyList())
+            }
+            val (result, source) = gamesDeferred.await()
             currentGamesSource = source
+            channelList = channelsDeferred.await()
 
             DataSourceCommon.debugLog(
                 result.fold(
@@ -595,6 +607,15 @@ class NBAScorePanel(
             isOpaque = false
             add(liveLink, BorderLayout.WEST)
             add(detailHint, BorderLayout.EAST)
+            // 中间：转播渠道标注（直播吧首页 "CCTV5 腾讯视频 全美直播"），无则不占位
+            val channelText = channelList.firstOrNull { it.matches(game.awayTeam.name, game.homeTeam.name) }?.channelText
+            if (!channelText.isNullOrBlank()) {
+                add(JLabel("📡 $channelText").apply {
+                    font = font.deriveFont(10f)
+                    foreground = JBColor.GRAY
+                    horizontalAlignment = SwingConstants.CENTER
+                }, BorderLayout.CENTER)
+            }
         }
 
         card.add(statusPanel, BorderLayout.WEST)

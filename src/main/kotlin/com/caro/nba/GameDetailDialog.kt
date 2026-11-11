@@ -42,6 +42,14 @@ class GameDetailDialog(
     private var loadingLabel: JLabel? = null
     private var currentStatus: String = "scheduled"  // 存储比赛状态
 
+    // 转播渠道检测结果（检测线程 → EDT 回填比分区状态行）
+    @Volatile private var channelText: String = ""      // 直播吧渠道标注原文（如 "CCTV5 腾讯视频 全美直播"）
+    @Volatile private var hasCctv5: Boolean = false     // 该场是否 CCTV5 电视转播（免费）
+    @Volatile private var tencentBroadcast: com.caro.nba.model.NBABroadcast? = null  // 腾讯场次（null=未匹配）
+    @Volatile private var tencentIsPay: Boolean? = null // 腾讯官方 isPay（null=未知）
+    @Volatile private var statusArea: JPanel? = null    // 比分区状态行容器
+    @Volatile private var currentStatusText: String = ""
+
     init {
         title = "$awayTeamName vs $homeTeamName"
         setOKButtonText("关闭")
@@ -76,10 +84,25 @@ class GameDetailDialog(
             }
         }.start()
 
+        // 并行：转播渠道检测（两路官方事实源，仅取转播方信息与官方页面链接，不取流地址）
+        // 1) 直播吧首页渠道标注：该场由谁转播（CCTV5/腾讯等）
+        // 2) 腾讯官方 isPay：是否免费场
+        Thread {
+            val ds = com.caro.nba.datasource.impl.TencentBroadcastDataSource()
+            tencentBroadcast = ds.recentBroadcasts().getOrNull()
+                ?.let { ds.findBroadcast(it, awayTeamName, homeTeamName) }
+            val channel = ds.homepageChannels().getOrNull()
+                ?.firstOrNull { it.matches(awayTeamName, homeTeamName) }
+            channelText = channel?.channelText ?: ""
+            hasCctv5 = channel?.hasCctv5() == true
+            tencentIsPay = tencentBroadcast?.let { ds.fetchIsPay(it.mid) }
+            SwingUtilities.invokeLater { updateStatusArea() }
+        }.start()
+
         return mainPanel
     }
 
-    // 文字转播按钮：固定到工具窗口「📺 直播」标签页实时观看，并关闭本详情
+    // 底部按钮区：文字转播 + 关闭（视频直播入口已在比分区状态行直接展示）
     override fun createActions(): Array<Action> {
         val playByPlayAction = object : AbstractAction("📺 文字转播") {
             override fun actionPerformed(e: ActionEvent?) {
@@ -184,23 +207,76 @@ class GameDetailDialog(
 
         panel.add(scorePanel, BorderLayout.CENTER)
 
-        // 状态
+        // 状态 + 转播渠道 + 直播链接（检测结果异步回填同一行）
         val statusText = when (detail.status) {
             "scheduled" -> "未开始"
             "in_progress" -> "进行中 ${if (detail.period > 4) "OT${detail.period - 4}" else "第${detail.period}节"}"
             "finished" -> "已结束"
             else -> detail.status
         }
-        val statusLabel = JLabel(statusText).apply {
-            font = font.deriveFont(13f)
-            horizontalAlignment = SwingConstants.CENTER
-            foreground = JBColor.GRAY
-            border = JBUI.Borders.empty(3)
+        currentStatusText = statusText
+        val area = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 10, 2)).apply {
+            border = JBUI.Borders.empty(2)
         }
-        panel.add(statusLabel, BorderLayout.SOUTH)
+        area.add(JLabel(statusText).apply {
+            font = font.deriveFont(13f)
+            foreground = JBColor.GRAY
+        })
+        buildChannelWidgets().forEach { area.add(it) }
+        statusArea = area
+        panel.add(area, BorderLayout.SOUTH)
 
         contentPanel?.add(panel)
         contentPanel?.add(Box.createVerticalStrut(10))
+    }
+
+    /** 状态行的转播渠道控件：渠道标注文字 + 官方直播链接按钮（检测结果回填；无结果返回空） */
+    private fun buildChannelWidgets(): List<JComponent> {
+        val widgets = mutableListOf<JComponent>()
+        if (channelText.isNotEmpty()) {
+            widgets += JLabel("📡 $channelText").apply {
+                font = font.deriveFont(12f)
+                foreground = JBColor.GRAY
+            }
+        }
+        if (hasCctv5) {
+            widgets += javax.swing.JButton("▶ CCTV5 免费直播").apply {
+                font = font.deriveFont(Font.BOLD, 12f)
+                foreground = java.awt.Color.WHITE
+                background = JBColor(0x1E7B34, 0x2D8F44)
+                isOpaque = true
+                toolTipText = "CCTV5 电视转播本场，点击打开央视网官方直播页（免费）"
+                addActionListener { com.intellij.ide.BrowserUtil.browse("https://tv.cctv.com/live/cctv5/") }
+            }
+        }
+        tencentBroadcast?.let { b ->
+            val payText = when (tencentIsPay) {
+                false -> "免费"
+                true -> "会员"
+                null -> "官方"
+            }
+            widgets += javax.swing.JButton("腾讯直播（$payText）").apply {
+                font = font.deriveFont(Font.BOLD, 12f)
+                toolTipText = "打开腾讯体育官方比赛页（是否免费以页面为准）"
+                addActionListener { com.intellij.ide.BrowserUtil.browse(b.gamePageUrl()) }
+            }
+        }
+        return widgets
+    }
+
+    /** 转播检测结果回填状态行（比分区已渲染时替换为 状态+渠道+直播链接） */
+    private fun updateStatusArea() {
+        val area = statusArea ?: return
+        val widgets = buildChannelWidgets()
+        if (widgets.isEmpty()) return
+        area.removeAll()
+        area.add(JLabel(currentStatusText).apply {
+            font = font.deriveFont(13f)
+            foreground = JBColor.GRAY
+        })
+        widgets.forEach { area.add(it) }
+        area.revalidate()
+        area.repaint()
     }
 
     private fun addPlayerStatsSection(detail: GameDetail) {
