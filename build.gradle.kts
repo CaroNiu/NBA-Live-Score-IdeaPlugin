@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.caro"
-version = "5.7.0"
+version = "5.8.0"
 
 repositories {
     mavenCentral()
@@ -30,12 +30,13 @@ dependencies {
     
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.google.zxing:core:3.5.3")
 }
 
 intellijPlatform {
     pluginConfiguration {
         name = "NBA Live Score"
-        version = "5.7.0"
+        version = "5.8.0"
 
         // 适配 IDEA 2024.2 到 2025.3+
         ideaVersion {

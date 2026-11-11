@@ -45,6 +45,33 @@ class Zhibo8LeaderDataSource {
         SeasonLeaders("$year-${year + 1}", categories, source = "直播吧")
     }
 
+    // ---------------- 球员资料卡（插件内嵌查看） ----------------
+
+    /**
+     * 球员资料卡原始数据（playerId 与单场统计接口的 player_id 同体系）。
+     * 响应 data 含 player（资料）/playerExtend/seasonData（场均 average+total）/recent5Games（近5场）/career 等，
+     * 结构较松散，由 UI 层防御性解析展示。
+     * 注意：PHP 偶发在 JSON 前输出 Notice 噪音，解析时提取最后一个完整 JSON 对象。
+     */
+    fun playerCard(playerId: String): Result<JsonObject> = runCatching {
+        val request = Request.Builder()
+            .url("https://data.zhibo8.cc/manage/public/app.php?_url=/nba_v2_player/player&playerId=$playerId")
+            .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://data.zhibo8.cc/nbaData/player/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw Exception("直播吧球员资料请求失败: ${response.code}")
+            val body = response.body?.string() ?: throw Exception("球员资料响应为空")
+            val jsonPart = body.substringAfterLast("<br />").ifBlank { body }
+            val root = gson.fromJson(jsonPart, JsonObject::class.java)
+            if (root.get("status")?.takeIf { it.isJsonPrimitive }?.asString != "1") {
+                throw Exception(root.get("mesg")?.asString ?: "球员资料未找到")
+            }
+            root.getAsJsonObject("data") ?: throw Exception("球员资料为空")
+        }
+    }
+
     // ---------------- 今日数据王（直播吧单场统计聚合） ----------------
 
     /**

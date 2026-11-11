@@ -634,6 +634,13 @@ class Zhibo8GameDetailDataSource : GameDetailDataSource {
             fun scoreOf(side: JsonObject?): Int =
                 side?.get("score")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
 
+            /** 每节得分：bifen v2 scores[8]（字符串数组，"-" 占位/未打节过滤） */
+            fun lineScoresOf(side: JsonObject?): List<String> =
+                side?.getAsJsonArray("scores")?.mapNotNull { e ->
+                    e.takeIf { it.isJsonPrimitive }?.asString
+                        ?.takeIf { v -> v.isNotBlank() && v != "-" && v.toIntOrNull() != null }
+                } ?: emptyList()
+
             fun buildTeam(name: String, teamId: String, side: JsonObject?, stats: Map<String, String>): GameDetail.TeamDetail {
                 val abbr = DataSourceCommon.chineseNameToAbbr[name] ?: ""
                 return GameDetail.TeamDetail(
@@ -642,7 +649,8 @@ class Zhibo8GameDetailDataSource : GameDetailDataSource {
                     abbreviation = abbr,
                     logo = DataSourceCommon.espnTeamLogo(abbr),
                     score = scoreOf(side),
-                    statistics = stats
+                    statistics = stats,
+                    lineScores = lineScoresOf(side)
                 )
             }
 

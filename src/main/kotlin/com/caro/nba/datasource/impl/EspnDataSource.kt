@@ -401,6 +401,11 @@ class EspnGameDetailDataSource : GameDetailDataSource {
             val shortDisplayName = team.get("shortDisplayName")?.asString ?: ""
             val score = compObj.get("score")?.asString?.toIntOrNull() ?: 0
 
+            // 每节得分：header.competitions[0].competitors[].linescores[].value
+            val lineScores = compObj.getAsJsonArray("linescores")?.mapNotNull { ls ->
+                ls.asJsonObject.get("value")?.takeIf { it.isJsonPrimitive }?.let { it.asInt.toString() }
+            } ?: emptyList()
+
             val teamDetail = GameDetail.TeamDetail(
                 id = team.get("id")?.asString ?: "",
                 name = teamNameMap[shortDisplayName] ?: shortDisplayName,
@@ -408,7 +413,8 @@ class EspnGameDetailDataSource : GameDetailDataSource {
                 logo = team.getAsJsonArray("logos")?.get(0)?.asJsonObject?.get("href")?.asString ?: "",
                 score = score,
                 statistics = emptyMap(),
-                leaders = emptyList()
+                leaders = emptyList(),
+                lineScores = lineScores
             )
 
             if (isHome) homeTeam = teamDetail else awayTeam = teamDetail

@@ -207,6 +207,30 @@ class GameDetailDialog(
 
         panel.add(scorePanel, BorderLayout.CENTER)
 
+        // SOUTH 堆栈：每节比分条 + 状态/渠道行
+        val southStack = JPanel()
+        southStack.layout = BoxLayout(southStack, BoxLayout.Y_AXIS)
+
+        // 每节比分条（两队均有每节数据才显示）：Q1 23-31  Q2 28-25 ...
+        val awayLines = detail.awayTeam.lineScores
+        val homeLines = detail.homeTeam.lineScores
+        val quarters = minOf(awayLines.size, homeLines.size)
+        if (quarters > 0) {
+            val lineText = (0 until quarters).joinToString("  ") { i ->
+                val label = if (i < 4) "Q${i + 1}" else "OT${i - 3}"
+                "$label ${awayLines[i]}-${homeLines[i]}"
+            }
+            southStack.add(
+                JLabel("每节：$lineText").apply {
+                    font = font.deriveFont(12f)
+                    foreground = JBColor.GRAY
+                    horizontalAlignment = SwingConstants.CENTER
+                    alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                    border = JBUI.Borders.empty(2)
+                }
+            )
+        }
+
         // 状态 + 转播渠道 + 直播链接（检测结果异步回填同一行）
         val statusText = when (detail.status) {
             "scheduled" -> "未开始"
@@ -217,6 +241,7 @@ class GameDetailDialog(
         currentStatusText = statusText
         val area = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 10, 2)).apply {
             border = JBUI.Borders.empty(2)
+            alignmentX = java.awt.Component.CENTER_ALIGNMENT
         }
         area.add(JLabel(statusText).apply {
             font = font.deriveFont(13f)
@@ -224,7 +249,9 @@ class GameDetailDialog(
         })
         buildChannelWidgets().forEach { area.add(it) }
         statusArea = area
-        panel.add(area, BorderLayout.SOUTH)
+        southStack.add(area)
+
+        panel.add(southStack, BorderLayout.SOUTH)
 
         contentPanel?.add(panel)
         contentPanel?.add(Box.createVerticalStrut(10))
@@ -386,14 +413,14 @@ class GameDetailDialog(
                 }
             }
 
-            // 点击球员名称打开详情（总计行不在 players 范围内，自动排除）
+            // 点击球员名称打开资料卡（总计行不在 players 范围内，自动排除）
             addMouseListener(object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
                     val row = rowAtPoint(e.point)
                     val col = columnAtPoint(e.point)
                     if (col == 0 && row >= 0 && row < players.size) {
                         val player = players[row]
-                        openPlayerDetail(player)
+                        openPlayerDetail(player, teamName)
                     }
                 }
             })
@@ -406,7 +433,7 @@ class GameDetailDialog(
         panel.add(scrollPane, BorderLayout.CENTER)
 
         // 点击提示
-        val hintLabel = JLabel("💡 点击球员名称查看详情").apply {
+        val hintLabel = JLabel("💡 点击球员名称查看资料卡").apply {
             font = font.deriveFont(10f)
             foreground = JBColor.GRAY
             border = JBUI.Borders.empty(5)
@@ -417,32 +444,32 @@ class GameDetailDialog(
         return panel
     }
 
-    private fun openPlayerDetail(player: GameDetail.Player) {
-        val options = arrayOf("打开 ESPN 球员页面", "取消")
-        val choice = JOptionPane.showOptionDialog(
-            mainPanel,
-            "查看 ${player.name} 的详细信息？",
-            "球员详情",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.QUESTION_MESSAGE,
-            null,
-            options,
-            options[0]
-        )
-
-        if (choice == 0) {
-            try {
-                // 使用 ESPN 球员页面 URL
-                val url = if (player.playerUrl.isNotEmpty()) {
-                    player.playerUrl
-                } else {
-                    "https://www.espn.com/nba/player/_/id/${player.id}"
+    /** 球员名点击：直播吧源 → 插件内嵌资料卡（playerId 直查）；失败兜底浏览器打开官方资料页；ESPN 源 → ESPN 球员页 */
+    private fun openPlayerDetail(player: GameDetail.Player, teamName: String) {
+        val isZhiboSource = player.playerUrl.contains("qiumibao.com")
+        if (isZhiboSource && player.id.isNotBlank()) {
+            Thread {
+                val card = com.caro.nba.datasource.impl.Zhibo8LeaderDataSource().playerCard(player.id).getOrNull()
+                SwingUtilities.invokeLater {
+                    if (card != null) {
+                        PlayerCardDialog(project, player.name, card).show()
+                    } else {
+                        // 兜底：直播吧官方资料页
+                        val url = "https://data.zhibo8.cc/nbaData/player/#/shuju" +
+                            "?playerName=${java.net.URLEncoder.encode(player.name, "UTF-8")}" +
+                            "&teamName=${java.net.URLEncoder.encode(teamName, "UTF-8")}"
+                        com.intellij.ide.BrowserUtil.browse(url)
+                    }
                 }
-                Desktop.getDesktop().browse(URI(url))
-            } catch (e: Exception) {
-                JOptionPane.showMessageDialog(mainPanel, "无法打开链接: ${e.message}")
-            }
+            }.start()
+            return
         }
+        val url = if (player.playerUrl.isNotEmpty()) {
+            player.playerUrl
+        } else {
+            "https://www.espn.com/nba/player/_/id/${player.id}"
+        }
+        com.intellij.ide.BrowserUtil.browse(url)
     }
 
     private fun showError(message: String) {

@@ -1,6 +1,9 @@
 package com.caro.nba
 
 import com.caro.nba.model.NBAGame
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.awt.Color
@@ -36,6 +39,9 @@ object ShareImageGenerator {
 
     /** 默认底部水印（传播锚点：仓库名），可被设置里的自定义文案替代 */
     private const val DEFAULT_WATERMARK = "NBA Live Score · IDEA 插件   |   github.com/CaroNiu/NBA-Live-Score-IdeaPlugin"
+
+    /** 二维码内容：Marketplace 安装页（扫码直达） */
+    private const val QR_CONTENT = "https://plugins.jetbrains.com/plugin/30496"
 
     /**
      * 分享图主题（色板）
@@ -122,14 +128,39 @@ object ShareImageGenerator {
         g.color = Color(255, 255, 255, 230)
         g.drawString(badge, (W - g.fontMetrics.stringWidth(badge)) / 2, cy + 78 + 36)
 
-        // 底部水印（自定义文案优先，trim 后为空回退默认）
+        // 底部水印（自定义文案优先，trim 后为空回退默认）——居中偏左，右侧留 QR 位
         val wm = watermark.trim().ifEmpty { DEFAULT_WATERMARK }
         g.font = fontWatermark
         g.color = Color(255, 255, 255, 110)
-        g.drawString(wm, (W - g.fontMetrics.stringWidth(wm)) / 2, H - 28)
+        g.drawString(wm, 48, H - 28)
+
+        // 右下角二维码（Marketplace 安装页，扫码直达）
+        drawQrCode(g, QR_CONTENT, W - 118, H - 118, 100)
 
         g.dispose()
         return img
+    }
+
+    /** 在指定位置绘制白底黑模块二维码（ZXing） */
+    private fun drawQrCode(g: Graphics2D, content: String, x: Int, y: Int, size: Int) {
+        runCatching {
+            val hints = mapOf(EncodeHintType.MARGIN to 1, EncodeHintType.CHARACTER_SET to "UTF-8")
+            val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
+            // 白底圆角衬底保证深色背景下可扫
+            g.color = Color(255, 255, 255, 235)
+            g.fill(RoundRectangle2D.Float((x - 8).toFloat(), (y - 8).toFloat(), (size + 16).toFloat(), (size + 16).toFloat(), 12f, 12f))
+            g.color = Color(0x11, 0x11, 0x11)
+            val moduleW = size.toFloat() / matrix.width
+            val moduleH = size.toFloat() / matrix.height
+            for (mx in 0 until matrix.width) {
+                for (my in 0 until matrix.height) {
+                    if (matrix.get(mx, my)) {
+                        g.fillRect(x + (mx * moduleW).toInt(), y + (my * moduleH).toInt(),
+                            moduleW.toInt() + 1, moduleH.toInt() + 1)
+                    }
+                }
+            }
+        } // 二维码生成失败静默跳过（不影响卡片主体）
     }
 
     /** 一侧队伍：圆形 logo + 下方居中中文队名 */

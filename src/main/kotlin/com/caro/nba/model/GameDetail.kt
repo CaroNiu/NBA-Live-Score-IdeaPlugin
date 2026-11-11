@@ -28,7 +28,9 @@ data class GameDetail(
         val score: Int = 0,
         val statistics: Map<String, String> = emptyMap(),
         val leaders: List<TeamLeader> = emptyList(),
-        val record: String = ""
+        val record: String = "",
+        /** 每节得分（按节次顺序，如 ["23","31","28","41"]；空=数据源未提供） */
+        val lineScores: List<String> = emptyList()
     )
 
     data class TeamLeader(
