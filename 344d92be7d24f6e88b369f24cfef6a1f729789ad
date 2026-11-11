@@ -1,0 +1,37 @@
+src/main/kotlin/com/caro/nba/WhereToWatchDialog.kt
+  be6a0df5a778d18e 1-131
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 72-74,343-350,352,610-618
+src/main/kotlin/com/caro/nba/datasource/impl/TencentBroadcastDataSource.kt
+  be6a0df5a778d18e 1-157
+src/main/kotlin/com/caro/nba/GameDetailDialog.kt
+  be6a0df5a778d18e 45-51,87-100,105,210,217-221,224-227,233-265,267-280
+build.gradle.kts
+  be6a0df5a778d18e 11,38
+src/main/kotlin/com/caro/nba/PlayByPlayPanel.kt
+  be6a0df5a778d18e 140-151,156-157,226,473-489
+src/main/kotlin/com/caro/nba/model/NBABroadcast.kt
+  be6a0df5a778d18e 1-31
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "344d92be7d24f6e88b369f24cfef6a1f729789ad",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 2469,
+      "total_deletions": 2021,
+      "accepted_lines": 2597,
+      "overriden_lines": 4
+    }
+  }
+}
