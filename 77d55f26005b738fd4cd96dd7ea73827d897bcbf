@@ -1,0 +1,39 @@
+src/main/kotlin/com/caro/nba/ShareImageGenerator.kt
+  be6a0df5a778d18e 4-6,43-45,131,135,137-138,144-163
+src/main/kotlin/com/caro/nba/datasource/impl/Zhibo8LeaderDataSource.kt
+  be6a0df5a778d18e 48-73
+src/main/kotlin/com/caro/nba/model/GameDetail.kt
+  be6a0df5a778d18e 31-33
+build.gradle.kts
+  be6a0df5a778d18e 11,33,39
+src/main/kotlin/com/caro/nba/datasource/impl/Zhibo8DataSource.kt
+  be6a0df5a778d18e 637-642,652-653
+src/main/kotlin/com/caro/nba/GameDetailDialog.kt
+  be6a0df5a778d18e 210-212,214-232,244,252,254,416,423,436,447-462,464-470,472
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-69
+src/main/kotlin/com/caro/nba/datasource/impl/EspnDataSource.kt
+  be6a0df5a778d18e 404-408,416-417
+src/main/kotlin/com/caro/nba/PlayerCardDialog.kt
+  be6a0df5a778d18e 1-203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "77d55f26005b738fd4cd96dd7ea73827d897bcbf",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 2564,
+      "total_deletions": 2189,
+      "accepted_lines": 2504,
+      "overriden_lines": 82
+    }
+  }
+}
