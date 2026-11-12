@@ -55,6 +55,10 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
     private var seasonLoaded = false
     private var scheduleLoaded = false
 
+    /** 赛程数据缓存（「只看关注球队」切换时免重拉） */
+    private var scheduleDaysCache: List<com.caro.nba.model.ScheduleDay> = emptyList()
+    private var scheduleFollowOnlyCheckBox: javax.swing.JCheckBox? = null
+
     private val subTabs = JTabbedPane(JTabbedPane.TOP)
 
     init {
@@ -99,7 +103,22 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
             isOpaque = false
             border = JBUI.Borders.empty(8, 12, 2, 12)
             add(scheduleHintLabel, BorderLayout.WEST)
-            add(JLabel("未来 7 天 · 北京时间 · 来源 直播吧").apply { foreground = JBColor.GRAY; font = font.deriveFont(11f) }, BorderLayout.EAST)
+            val east = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0)).apply {
+                isOpaque = false
+            }
+            val followCheckBox = javax.swing.JCheckBox("只看关注球队").apply {
+                font = font.deriveFont(11f)
+                isOpaque = false
+                isSelected = NBASettingsState.getInstance().scheduleFollowOnly
+                addActionListener {
+                    NBASettingsState.getInstance().scheduleFollowOnly = isSelected
+                    renderSchedule(scheduleListPanel, scheduleDaysCache)
+                }
+            }
+            scheduleFollowOnlyCheckBox = followCheckBox
+            east.add(followCheckBox)
+            east.add(JLabel("未来 7 天 · 北京时间 · 来源 直播吧").apply { foreground = JBColor.GRAY; font = font.deriveFont(11f) })
+            add(east, BorderLayout.EAST)
         }
         val scheduleWrap = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -169,7 +188,7 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
         }
     }
 
-    /** 未来 7 天赛程（按天分组：日期标题 + 场次行） */
+    /** 未来 7 天赛程（按天分组：日期标题 + 场次行；结果缓存供「只看关注球队」切换免重拉） */
     private fun loadSchedule() {
         scheduleLoaded = true
         scheduleHintLabel.text = "加载中..."
@@ -178,8 +197,7 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
             ApplicationManager.getApplication().invokeLater {
                 result.fold(
                     onSuccess = { days ->
-                        val totalGames = days.sumOf { it.games.size }
-                        scheduleHintLabel.text = if (totalGames == 0) "近期无赛程" else "共 $totalGames 场"
+                        scheduleDaysCache = days
                         renderSchedule(scheduleListPanel, days)
                     },
                     onFailure = {
@@ -191,16 +209,31 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
         }
     }
 
-    /** 渲染按天分组的赛程：日期标题 + 场次行（时间 客队 @ 主队） */
-    private fun renderSchedule(panel: JPanel, days: List<com.caro.nba.model.ScheduleDay>) {
+    /** 渲染按天分组的赛程（「只看关注球队」开启时过滤为关注球队的场次） */
+    private fun renderSchedule(panel: JPanel, allDays: List<com.caro.nba.model.ScheduleDay>) {
         panel.removeAll()
+        val followOnly = scheduleFollowOnlyCheckBox?.isSelected == true
+        val followed = NBASettingsState.getInstance().followedTeams.toSet()
+        val days = if (followOnly && followed.isNotEmpty()) {
+            allDays.map { day ->
+                day.copy(games = day.games.filter { g ->
+                    g.awayTeam in followed || g.homeTeam in followed
+                })
+            }.filter { it.games.isNotEmpty() }
+        } else allDays
+
         if (days.isEmpty()) {
             panel.add(Box.createVerticalStrut(40))
-            panel.add(JLabel("近期无赛程安排").apply {
-                alignmentX = Component.CENTER_ALIGNMENT
-                foreground = JBColor.GRAY
-            })
+            panel.add(
+                JLabel(if (followOnly) "关注球队近期无比赛\n\n取消「只看关注球队」查看全部赛程" else "近期无赛程安排").apply {
+                    alignmentX = Component.CENTER_ALIGNMENT
+                    foreground = JBColor.GRAY
+                    horizontalAlignment = SwingConstants.CENTER
+                }
+            )
         } else {
+            val totalGames = days.sumOf { it.games.size }
+            scheduleHintLabel.text = "共 $totalGames 场" + if (followOnly) "（关注球队）" else ""
             for (day in days) {
                 panel.add(JLabel("${day.date} · ${day.games.size} 场").apply {
                     font = font.deriveFont(Font.BOLD, 13f)

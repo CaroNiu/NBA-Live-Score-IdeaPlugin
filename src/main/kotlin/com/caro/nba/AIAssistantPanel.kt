@@ -342,6 +342,8 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var sportsDbApiKey: String = ""
     /** 文字转播来源偏好（auto / zhibo8 / sina / espn），由文字转播对话框的下拉维护 */
     var playByPlaySource: String = "auto"
+    /** 文字直播/弹幕正文字号（11~18，工具栏 A-/A+ 调节并持久化） */
+    var contentFontSize: Float = 13f
 
     // ===== AI 助手配置 =====
     var apiUrl: String = ""
@@ -396,6 +398,9 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     /** 关注球队上次通知过的连胜快照（team -> "W5"/"L3"），跨入 ≥5 区间时发一次 */
     var teamStreakSnapshot: MutableMap<String, String> = mutableMapOf()
 
+    /** 赛程子标签「只看关注球队」开关（默认全量） */
+    var scheduleFollowOnly: Boolean = false
+
     companion object {
         /** 匿名统计官方端点（不带版本参数，插件启动时自动追加 ?v=当前版本） */
         const val DEFAULT_PING_URL = "https://nba-ping.17686996800.workers.dev/ping"
@@ -431,6 +436,8 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.onboardingDone = state.onboardingDone
         this.ratingPromptShown = state.ratingPromptShown
         this.shareImageTheme = state.shareImageTheme
+        this.contentFontSize = state.contentFontSize
+        this.scheduleFollowOnly = state.scheduleFollowOnly
         this.shareImageWatermark = state.shareImageWatermark
         this.teamStreakSnapshot = state.teamStreakSnapshot
     }

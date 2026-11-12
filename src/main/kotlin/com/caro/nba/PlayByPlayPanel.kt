@@ -138,6 +138,23 @@ class PlayByPlayPanel(
         westBox.add(JLabel("来源:"))
         westBox.add(Box.createHorizontalStrut(4))
         westBox.add(sourceCombo)
+        westBox.add(Box.createHorizontalStrut(8))
+        // 字号调节（文字直播/弹幕正文，持久化）
+        val minusBtn = JButton("A-").apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+            margin = JBUI.insets(2, 6, 2, 6)
+            toolTipText = "减小正文字号"
+            addActionListener { adjustContentFontSize(-1f) }
+        }
+        val plusBtn = JButton("A+").apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+            margin = JBUI.insets(2, 6, 2, 6)
+            toolTipText = "增大正文字号"
+            addActionListener { adjustContentFontSize(+1f) }
+        }
+        westBox.add(minusBtn)
+        westBox.add(Box.createHorizontalStrut(2))
+        westBox.add(plusBtn)
         toolbar.add(westBox, BorderLayout.WEST)
 
         val statusLabel = JLabel(when {
@@ -406,7 +423,8 @@ class PlayByPlayPanel(
                         JLabel("<html><div style='width:100%'>" +
                                 "<span style='color:gray'>${escDanmu(d.time.takeLast(5))}</span> ${escDanmu(d.content)}" +
                                 "</div></html>").apply {
-                            font = font.deriveFont(12f)
+                            font = font.deriveFont(NBASettingsState.getInstance().contentFontSize)
+                            putClientProperty("danmuRow", true)
                             border = JBUI.Borders.empty(2, 8, 2, 8)
                             alignmentX = Component.LEFT_ALIGNMENT
                         }
@@ -423,6 +441,35 @@ class PlayByPlayPanel(
     }
 
     private fun escDanmu(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** A-/A+：正文字号步进调节（11~18），持久化并即时应用到文字直播正文与弹幕行 */
+    private fun adjustContentFontSize(delta: Float) {
+        val settings = NBASettingsState.getInstance()
+        val newSize = (settings.contentFontSize + delta).coerceIn(11f, 18f)
+        if (newSize == settings.contentFontSize) return
+        settings.contentFontSize = newSize
+        applyContentFontSize()
+    }
+
+    /** 遍历文字直播内容与弹幕列表，即时应用新字号（只动正文 JTextArea 与弹幕行 JLabel） */
+    private fun applyContentFontSize() {
+        val size = NBASettingsState.getInstance().contentFontSize
+        fun applyRecursive(c: java.awt.Container) {
+            for (comp in c.components) {
+                when (comp) {
+                    is javax.swing.JTextArea -> comp.font = comp.font.deriveFont(size)
+                    is javax.swing.JLabel -> if (comp.getClientProperty("danmuRow") == true) {
+                        comp.font = comp.font.deriveFont(size)
+                    }
+                }
+                if (comp is java.awt.Container) applyRecursive(comp)
+            }
+        }
+        (scrollPane?.viewport?.view as? java.awt.Container)?.let { applyRecursive(it) }
+        danmuListPanel?.let { applyRecursive(it) }
+        revalidate()
+        repaint()
+    }
 
     private fun showPlayByPlay(pbp: PlayByPlay, actualSource: DataSource, isAutoMode: Boolean) {
         loadingLabel?.isVisible = false
@@ -534,7 +581,7 @@ class PlayByPlayPanel(
             isEditable = false
             isOpaque = false
             isFocusable = false
-            font = font.deriveFont(12f)
+            font = font.deriveFont(NBASettingsState.getInstance().contentFontSize)
             foreground = if (play.isScoringPlay) JBColor(0x0066CC, 0x4A9EFF) else JBColor.BLACK
             alignmentX = Component.LEFT_ALIGNMENT
         })

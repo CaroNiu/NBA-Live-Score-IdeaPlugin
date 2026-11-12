@@ -158,14 +158,23 @@ class GameDetailDialog(
     }
 
     private fun addScoreSection(detail: GameDetail) {
+        // 每节得分合理性计算（preferredSize 与渲染都依赖：每节之和 == 各自总分才视为有效）
+        val awayLines = detail.awayTeam.lineScores
+        val homeLines = detail.homeTeam.lineScores
+        val quarters = minOf(awayLines.size, homeLines.size)
+        val awaySum = awayLines.sumOf { it.toIntOrNull() ?: 0 }
+        val homeSum = homeLines.sumOf { it.toIntOrNull() ?: 0 }
+        val showTrendChart = quarters >= 2 &&
+            awaySum == detail.awayTeam.score && homeSum == detail.homeTeam.score
+
         val panel = JPanel(BorderLayout(10, 0)).apply {
             border = BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(JBColor.border()),
                 "比分"
             )
-//            maximumSize = Dimension(Int.MAX_VALUE, 120)
-            // 移除最大高度限制，让面板根据内容自适应
-            preferredSize = Dimension(840, 160)
+            // 高度随内容自适应：有走势图时容纳折线+每节条+状态行，无图时紧凑
+            // （固定 160 会在大比分区加入折线图后被裁切覆盖，见 6.1.0 修复）
+            preferredSize = Dimension(840, if (showTrendChart) 340 else 160)
         }
 
         // 比分显示
@@ -207,19 +216,19 @@ class GameDetailDialog(
 
         panel.add(scorePanel, BorderLayout.CENTER)
 
-        // SOUTH 堆栈：每节比分条 + 状态/渠道行
+        // SOUTH 堆栈：比分走势折线图 + 每节比分条 + 状态/渠道行
         val southStack = JPanel()
         southStack.layout = BoxLayout(southStack, BoxLayout.Y_AXIS)
 
-        // 每节比分条（两队均有每节数据才显示）：Q1 23-31  Q2 28-25 ...
-        val awayLines = detail.awayTeam.lineScores
-        val homeLines = detail.homeTeam.lineScores
-        val quarters = minOf(awayLines.size, homeLines.size)
-        if (quarters > 0) {
+        // 每节比分（两队均有每节数据才显示）：走势折线图 + 数字条（数据有效才渲染，见方法头防御计算）
+        if (quarters > 0 && showTrendChart) {
             val lineText = (0 until quarters).joinToString("  ") { i ->
                 val label = if (i < 4) "Q${i + 1}" else "OT${i - 3}"
                 "$label ${awayLines[i]}-${homeLines[i]}"
             }
+            southStack.add(
+                ScoreTrendChart(awayLines.take(quarters), homeLines.take(quarters))
+            )
             southStack.add(
                 JLabel("每节：$lineText").apply {
                     font = font.deriveFont(12f)

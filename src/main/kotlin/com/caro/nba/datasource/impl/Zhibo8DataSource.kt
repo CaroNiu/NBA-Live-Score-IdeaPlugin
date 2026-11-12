@@ -634,12 +634,19 @@ class Zhibo8GameDetailDataSource : GameDetailDataSource {
             fun scoreOf(side: JsonObject?): Int =
                 side?.get("score")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
 
-            /** 每节得分：bifen v2 scores[8]（字符串数组，"-" 占位/未打节过滤） */
-            fun lineScoresOf(side: JsonObject?): List<String> =
-                side?.getAsJsonArray("scores")?.mapNotNull { e ->
+            /** 每节得分：bifen v2 scores[8]（字符串数组，"-" 占位/未打节过滤；尾部未打节的 0 占位截断） */
+            fun lineScoresOf(side: JsonObject?): List<String> {
+                val list = side?.getAsJsonArray("scores")?.mapNotNull { e ->
                     e.takeIf { it.isJsonPrimitive }?.asString
                         ?.takeIf { v -> v.isNotBlank() && v != "-" && v.toIntOrNull() != null }
-                } ?: emptyList()
+                } ?: return emptyList()
+                // 尾部 0 = 未打的节（加时占位），截掉；进行中的 0 分节在中间不受影响
+                val mutable = list.toMutableList()
+                while (mutable.isNotEmpty() && mutable.last().toIntOrNull() == 0) {
+                    mutable.removeAt(mutable.size - 1)
+                }
+                return mutable
+            }
 
             fun buildTeam(name: String, teamId: String, side: JsonObject?, stats: Map<String, String>): GameDetail.TeamDetail {
                 val abbr = DataSourceCommon.chineseNameToAbbr[name] ?: ""
