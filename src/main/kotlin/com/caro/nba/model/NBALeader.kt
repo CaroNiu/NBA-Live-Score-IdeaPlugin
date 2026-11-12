@@ -31,3 +31,18 @@ data class SeasonLeaders(
 ) {
     fun isEmpty(): Boolean = categories.all { it.entries.isEmpty() }
 }
+
+/** 一天的赛程分组 */
+data class ScheduleDay(
+    val date: String,           // 北京日期 yyyy-MM-dd
+    val games: List<ScheduleGame>
+)
+
+/** 一场赛程条目（直播吧中文数据） */
+data class ScheduleGame(
+    val time: String,           // 北京开球时间 HH:mm
+    val awayTeam: String,       // 客队中文名
+    val homeTeam: String,       // 主队中文名
+    val score: String,          // 比分（未开赛为空或 "-"）
+    val dateBeijing: String     // 北京日期
+)

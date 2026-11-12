@@ -3,6 +3,7 @@ package com.caro.nba.service
 import com.caro.nba.datasource.impl.EspnStatsDataSource
 import com.caro.nba.datasource.impl.Zhibo8LeaderDataSource
 import com.caro.nba.model.NBATeamSchedule
+import com.caro.nba.model.ScheduleDay
 import com.caro.nba.model.SeasonLeaders
 import com.caro.nba.model.TodayLeaders
 import java.time.LocalDate
@@ -33,4 +34,7 @@ class LeagueLeadersService {
 
     /** 球队赛程（近5场 + 未来5场） */
     fun teamSchedule(abbr: String): Result<NBATeamSchedule> = stats.teamSchedule(abbr)
+
+    /** 未来 N 天联赛赛程（直播吧，北京时间口径） */
+    fun upcomingSchedule(days: Int = 7): Result<List<ScheduleDay>> = zb8Leaders.upcomingSchedule(days)
 }

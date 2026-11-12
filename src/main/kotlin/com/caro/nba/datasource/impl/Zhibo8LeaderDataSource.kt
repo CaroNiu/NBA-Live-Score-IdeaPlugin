@@ -4,6 +4,8 @@ import com.caro.nba.datasource.DataSourceCommon
 import com.caro.nba.model.LeaderCategory
 import com.caro.nba.model.LeaderEntry
 import com.caro.nba.model.NBAGame
+import com.caro.nba.model.ScheduleDay
+import com.caro.nba.model.ScheduleGame
 import com.caro.nba.model.SeasonLeaders
 import com.caro.nba.model.TodayLeaders
 import com.google.gson.JsonObject
@@ -14,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.net.URLEncoder
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /**
  * 直播吧球员数据榜数据源（中文球员名/队名，100 人完整榜单）
@@ -32,7 +35,13 @@ class Zhibo8LeaderDataSource {
         private const val API = "https://stats.qiumibao.com/shuju/public/index.php"
 
         /** 类目：接口 type 参数 → 中文展示名 */
-        private val CATEGORIES = linkedMapOf("得分" to "场均得分", "篮板" to "场均篮板", "助攻" to "场均助攻")
+        private val CATEGORIES = linkedMapOf(
+            "得分" to "场均得分",
+            "篮板" to "场均篮板",
+            "助攻" to "场均助攻",
+            "抢断" to "场均抢断",
+            "盖帽" to "场均盖帽"
+        )
     }
 
     /** 赛季场均榜（每类取 topN，接口单次返回 100 人，无二次请求） */
@@ -72,7 +81,61 @@ class Zhibo8LeaderDataSource {
         }
     }
 
-    // ---------------- 今日数据王（直播吧单场统计聚合） ----------------
+    // ---------------- 联赛赛程（直播吧当前赛季赛程，未来 N 天） ----------------
+
+    /**
+     * 未来 N 天的联赛赛程。
+     * 数据源：stats.qiumibao.com 通用赛程接口（league_v2 清单 type=赛程 tab），
+     * 返回当前赛季完整赛程（189 天跨度，2026-06 ~ 2027-04，按北京日期分组，title 带星期）。
+     * 注意：json_v2/nba_match.htm 是 2020 赛季历史归档，勿用。
+     */
+    fun upcomingSchedule(days: Int = 7): Result<List<ScheduleDay>> = runCatching {
+        val year = EspnStatsDataSource.currentSeasonYear()
+        val request = Request.Builder()
+            .url("https://stats.qiumibao.com/shuju/public/index.php" +
+                "?_url=/data/index&year=$year&type=%E8%B5%9B%E7%A8%8B&tab=%E8%B5%9B%E7%A8%8B" +
+                "&league_id=924&league=NBA&_platform=web&_env=pc")
+            .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://data.zhibo8.cc/pc_main_data/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw Exception("直播吧赛程接口失败: ${response.code}")
+            val body = response.body?.string() ?: throw Exception("赛程响应为空")
+            val root = gson.fromJson(body, JsonObject::class.java)
+            val dataArr = root.getAsJsonArray("data") ?: throw Exception("赛程数据缺失")
+
+            val today = LocalDate.now() // 北京时间口径（赛程按北京日期组织）
+            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            dataArr.mapNotNull { dayElem ->
+                val dayObj = dayElem?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val title = dayObj.get("title")?.asString ?: return@mapNotNull null
+                val date = runCatching { LocalDate.parse(title.take(10), formatter) }.getOrNull() ?: return@mapNotNull null
+                date to dayObj
+            }
+                .filter { (date, _) -> !date.isBefore(today) }
+                .sortedBy { (date, _) -> date }
+                .take(days)
+                .map { (date, dayObj) ->
+                    val games = dayObj.getAsJsonArray("list")?.mapNotNull { g ->
+                        val gObj = g?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                        ScheduleGame(
+                            time = gObj.strCn("时间"),
+                            awayTeam = gObj.strCn("客队名称")?.takeIf { it != "-" } ?: gObj.strCn("客队"),
+                            homeTeam = gObj.strCn("主队名称")?.takeIf { it != "-" } ?: gObj.strCn("主队"),
+                            score = gObj.strCn("比分"),
+                            dateBeijing = date.format(formatter)
+                        )
+                    } ?: emptyList()
+                    ScheduleDay(date = date.format(formatter), games = games)
+                }
+                .filter { it.games.isNotEmpty() }
+        }
+    }
+
+    /** 防御取值（字符串字段） */
+    private fun JsonObject.strCn(key: String): String =
+        get(key)?.takeIf { it.isJsonPrimitive }?.asString ?: ""
 
     /**
      * 聚合当日（美东日期）全部已开赛比赛的直播吧球员单场统计：

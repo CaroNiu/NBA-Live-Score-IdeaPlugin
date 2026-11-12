@@ -43,11 +43,17 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
 
     private val todayListPanel = JPanel()
     private val seasonListPanel = JPanel()
+    private val scheduleListPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        background = JBColor.background()
+    }
     private val todayDateLabel = JLabel(" ")
     private val seasonHintLabel = JLabel(" ")
+    private val scheduleHintLabel = JLabel(" ")
 
     private var todayLoaded = false
     private var seasonLoaded = false
+    private var scheduleLoaded = false
 
     private val subTabs = JTabbedPane(JTabbedPane.TOP)
 
@@ -89,13 +95,27 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
             add(seasonListPanel, BorderLayout.CENTER)
         }
 
+        val scheduleHeader = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(8, 12, 2, 12)
+            add(scheduleHintLabel, BorderLayout.WEST)
+            add(JLabel("未来 7 天 · 北京时间 · 来源 直播吧").apply { foreground = JBColor.GRAY; font = font.deriveFont(11f) }, BorderLayout.EAST)
+        }
+        val scheduleWrap = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(scheduleHeader, BorderLayout.NORTH)
+            add(scheduleListPanel, BorderLayout.CENTER)
+        }
+
         subTabs.addTab("今日榜", JBScrollPane(todayWrap))
         subTabs.addTab("赛季榜", JBScrollPane(seasonWrap))
+        subTabs.addTab("赛程", JBScrollPane(scheduleWrap))
 
         subTabs.addChangeListener {
             when (subTabs.selectedIndex) {
                 0 -> if (!todayLoaded) loadToday()
                 1 -> if (!seasonLoaded) loadSeason()
+                2 -> if (!scheduleLoaded) loadSchedule()
             }
         }
 
@@ -146,6 +166,73 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
                     }
                 )
             }
+        }
+    }
+
+    /** 未来 7 天赛程（按天分组：日期标题 + 场次行） */
+    private fun loadSchedule() {
+        scheduleLoaded = true
+        scheduleHintLabel.text = "加载中..."
+        scope.launch {
+            val result = service.upcomingSchedule(days = 7)
+            ApplicationManager.getApplication().invokeLater {
+                result.fold(
+                    onSuccess = { days ->
+                        val totalGames = days.sumOf { it.games.size }
+                        scheduleHintLabel.text = if (totalGames == 0) "近期无赛程" else "共 $totalGames 场"
+                        renderSchedule(scheduleListPanel, days)
+                    },
+                    onFailure = {
+                        scheduleHintLabel.text = " "
+                        renderError(scheduleListPanel, "赛程数据不可达（${it.message ?: "网络异常"}）")
+                    }
+                )
+            }
+        }
+    }
+
+    /** 渲染按天分组的赛程：日期标题 + 场次行（时间 客队 @ 主队） */
+    private fun renderSchedule(panel: JPanel, days: List<com.caro.nba.model.ScheduleDay>) {
+        panel.removeAll()
+        if (days.isEmpty()) {
+            panel.add(Box.createVerticalStrut(40))
+            panel.add(JLabel("近期无赛程安排").apply {
+                alignmentX = Component.CENTER_ALIGNMENT
+                foreground = JBColor.GRAY
+            })
+        } else {
+            for (day in days) {
+                panel.add(JLabel("${day.date} · ${day.games.size} 场").apply {
+                    font = font.deriveFont(Font.BOLD, 13f)
+                    border = JBUI.Borders.empty(8, 12, 2, 12)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                })
+                for (g in day.games) {
+                    panel.add(scheduleRow(g))
+                    panel.add(Box.createVerticalStrut(2))
+                }
+                panel.add(Box.createVerticalStrut(8))
+            }
+        }
+        panel.add(Box.createVerticalGlue())
+        panel.revalidate()
+        panel.repaint()
+    }
+
+    /** 赛程行：时间 | 客队 @ 主队（比分区提供 hover 完整对阵） */
+    private fun scheduleRow(g: com.caro.nba.model.ScheduleGame): JComponent = JPanel(BorderLayout()).apply {
+        maximumSize = Dimension(Int.MAX_VALUE, 30)
+        border = JBUI.Borders.empty(2, 12, 2, 12)
+        background = JBColor.background()
+        alignmentX = Component.LEFT_ALIGNMENT
+        add(JLabel("${g.time}　${g.awayTeam} @ ${g.homeTeam}").apply {
+            font = font.deriveFont(13f)
+        }, BorderLayout.WEST)
+        if (g.score.isNotBlank() && g.score != "-" && g.score != "VS") {
+            add(JLabel("　${g.score}").apply {
+                font = font.deriveFont(Font.BOLD, 12f)
+                horizontalAlignment = SwingConstants.RIGHT
+            }, BorderLayout.EAST)
         }
     }
 
