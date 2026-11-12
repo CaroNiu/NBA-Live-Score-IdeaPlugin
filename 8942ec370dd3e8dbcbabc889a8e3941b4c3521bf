@@ -1,0 +1,23 @@
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "8942ec370dd3e8dbcbabc889a8e3941b4c3521bf",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 526,
+      "total_deletions": 519,
+      "accepted_lines": 858,
+      "overriden_lines": 0
+    }
+  }
+}
