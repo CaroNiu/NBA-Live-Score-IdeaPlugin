@@ -53,6 +53,22 @@ class PlayByPlayPanel(
     /** 自动刷新定时器（进行中比赛每 30 秒拉一次，加载成功且未完赛时续约） */
     private var autoRefreshTimer: Timer? = null
 
+    // ---- 弹幕（直播吧只读聚合，不提供发送） ----
+    private val danmuService = com.caro.nba.datasource.impl.Zhibo8DanmuDataSource()
+    private var danmuToggleButton: JButton? = null
+    private var danmuScrollPane: JBScrollPane? = null
+    private var danmuListPanel: JPanel? = null
+    private var danmuTimer: Timer? = null
+    private var danmuVisible = false
+    /** 弹幕自动刷新开关（侧栏头部 checkbox，默认开） */
+    private var danmuAutoRefreshCheckBox: JCheckBox? = null
+    private var danmuLoading = false
+    /** 已展示的最大 order_id（增量拉取游标） */
+    private var lastDanmuOrderId = -1L
+
+    /** 文字直播容器（loadingLabel/scrollPane/infoLabel 三态挂载点，弹幕分栏的左侧） */
+    private var mainCenter: JPanel? = null
+
     /** 加载中标志：防止刷新/切源并发重入 */
     private var loading = false
 
@@ -70,6 +86,9 @@ class PlayByPlayPanel(
 
         /** 自动刷新间隔：轮询只拉 max_sid + 最新分块，开销小，15 秒保证实时性 */
         private const val AUTO_REFRESH_INTERVAL_MS = 15_000
+
+        /** 弹幕轮询间隔（只读展示，30 秒足够） */
+        private const val DANMU_POLL_INTERVAL_MS = 30_000
         private val COMBO_LABELS = listOf(COMBO_AUTO, "直播吧 · 中文", "新浪体育 · 中文", "ESPN · English")
 
         /** 实际生效源 -> 徽标文案 */
@@ -169,6 +188,14 @@ class PlayByPlayPanel(
         eastBox.add(sourceBadge)
         eastBox.add(Box.createHorizontalStrut(10))
         eastBox.add(lastUpdateLabel)
+        eastBox.add(Box.createHorizontalStrut(8))
+        danmuToggleButton = JButton("💬 弹幕").apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+            margin = JBUI.insets(2, 8, 2, 8)
+            toolTipText = "切换显示直播吧弹幕（只读）"
+            addActionListener { toggleDanmu() }
+        }
+        eastBox.add(danmuToggleButton)
         toolbar.add(eastBox, BorderLayout.EAST)
 
         add(toolbar, BorderLayout.NORTH)
@@ -177,14 +204,53 @@ class PlayByPlayPanel(
         loadingLabel = JLabel("正在加载文字转播...", SwingConstants.CENTER).apply {
             font = font.deriveFont(16f)
         }
-        add(loadingLabel, BorderLayout.CENTER)
 
         // 创建空的 scrollPane
         scrollPane = JBScrollPane().apply {
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             isVisible = false
         }
-        add(scrollPane, BorderLayout.CENTER)
+        // CENTER：文字直播容器（左）与弹幕视图（右）组成的分栏；弹幕默认隐藏（divider 推到最右）
+        val leftContainer = JPanel(BorderLayout()).apply {
+            isOpaque = false
+        }.also { mainCenter = it }
+        leftContainer.add(loadingLabel, BorderLayout.CENTER)
+
+        danmuListPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        }
+        val danmuHeader = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 5)).apply {
+            border = JBUI.Borders.empty(2, 10, 2, 10)
+            add(JLabel("💬 直播吧弹幕 · 只读").apply {
+                font = font.deriveFont(Font.BOLD, 12f)
+                foreground = JBColor(0x0066CC, 0x4A9EFF)
+            })
+            danmuAutoRefreshCheckBox = JCheckBox("自动刷新", true).apply {
+                font = font.deriveFont(11f)
+                isOpaque = false
+                addActionListener {
+                    if (isSelected) startDanmuPolling() else stopDanmuPolling()
+                }
+            }
+            add(danmuAutoRefreshCheckBox)
+        }
+        val danmuView = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(danmuHeader, BorderLayout.NORTH)
+            add(JBScrollPane(danmuListPanel), BorderLayout.CENTER)
+        }
+        danmuScrollPane = JBScrollPane(danmuView)
+
+        val splitPane = javax.swing.JSplitPane(
+            javax.swing.JSplitPane.HORIZONTAL_SPLIT, leftContainer, danmuScrollPane
+        ).apply {
+            isOpaque = false
+            resizeWeight = 1.0
+            dividerLocation = Int.MAX_VALUE  // 初始：弹幕侧隐藏
+            isOneTouchExpandable = false
+        }
+        leftContainer.add(scrollPane, BorderLayout.CENTER)
+        add(splitPane, BorderLayout.CENTER)
     }
 
     /** 当前下拉选中的数据源档位（null=自动） */
@@ -277,6 +343,86 @@ class PlayByPlayPanel(
         autoRefreshTimer?.stop()
         autoRefreshTimer = null
     }
+
+    // ---------------- 弹幕（直播吧只读聚合） ----------------
+
+    /** 切换弹幕侧栏显示：开=divider 拉到 55% 并启动轮询；关=推到最右并停止轮询 */
+    private fun toggleDanmu() {
+        danmuVisible = !danmuVisible
+        danmuToggleButton?.text = if (danmuVisible) "📄 文字直播" else "💬 弹幕"
+        val split = findSplitPane() ?: return
+        if (danmuVisible) {
+            split.dividerLocation = (split.width.coerceAtLeast(300) * 0.55).toInt()
+            startDanmuPolling()
+        } else {
+            split.dividerLocation = split.width.coerceAtLeast(1)
+            stopDanmuPolling()
+        }
+    }
+
+    /** 找到 CENTER 的分栏（构造后挂载，弹幕首开时可能尚未索引） */
+    private fun findSplitPane(): javax.swing.JSplitPane? =
+        components.filterIsInstance<javax.swing.JSplitPane>().firstOrNull()
+
+    private fun startDanmuPolling() {
+        if (danmuTimer?.isRunning == true) return
+        loadDanmu()  // 打开立即拉一次
+        danmuTimer = Timer(DANMU_POLL_INTERVAL_MS) { loadDanmu() }.apply {
+            isRepeats = true
+            start()
+        }
+    }
+
+    private fun stopDanmuPolling() {
+        danmuTimer?.stop()
+        danmuTimer = null
+    }
+
+    /**
+     * 拉弹幕：首次打开回填最近 60 条（并行翻页），之后轮询只取增量（order_id > 游标）。
+     * 新消息插入列表顶部（最新在最上，与文字直播一致）。
+     */
+    private fun loadDanmu() {
+        if (danmuLoading || gameId.isBlank()) return
+        danmuLoading = true
+        val year = gameRef?.easternDate?.year ?: java.time.LocalDate.now().year
+        val firstLoad = lastDanmuOrderId == -1L
+        scope.launch {
+            val fresh = (if (firstLoad) {
+                danmuService.recent(gameId, year, count = 60)
+            } else {
+                danmuService.latest(gameId, year)
+            }).getOrNull()
+                ?.filter { it.orderId > lastDanmuOrderId }
+                ?: emptyList()
+            javax.swing.SwingUtilities.invokeLater {
+                danmuLoading = false
+                if (fresh.isEmpty()) return@invokeLater
+                lastDanmuOrderId = lastDanmuOrderId.coerceAtLeast(fresh.maxOf { it.orderId })
+                val list = danmuListPanel ?: return@invokeLater
+                // 最新在最上（与文字直播一致）
+                for (d in fresh.sortedByDescending { it.orderId }) {
+                    list.add(
+                        JLabel("<html><div style='width:100%'>" +
+                                "<span style='color:gray'>${escDanmu(d.time.takeLast(5))}</span> ${escDanmu(d.content)}" +
+                                "</div></html>").apply {
+                            font = font.deriveFont(12f)
+                            border = JBUI.Borders.empty(2, 8, 2, 8)
+                            alignmentX = Component.LEFT_ALIGNMENT
+                        }
+                    )
+                }
+                // 上限保护：弹幕列表最多保留 200 条（移除底部旧项）
+                while (list.componentCount > 200) {
+                    list.remove(list.componentCount - 1)
+                }
+                list.revalidate()
+                list.repaint()
+            }
+        }
+    }
+
+    private fun escDanmu(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private fun showPlayByPlay(pbp: PlayByPlay, actualSource: DataSource, isAutoMode: Boolean) {
         loadingLabel?.isVisible = false
@@ -418,7 +564,7 @@ class PlayByPlayPanel(
 
     /** 移除 CENTER 区域上的说明/错误提示（避免多次提示叠加） */
     private fun removeInfoLabel() {
-        infoLabel?.let { remove(it) }
+        infoLabel?.let { mainCenter?.remove(it) }
         infoLabel = null
     }
 
@@ -436,7 +582,7 @@ class PlayByPlayPanel(
             font = font.deriveFont(14f)
             horizontalAlignment = SwingConstants.CENTER
         }
-        add(infoLabel, BorderLayout.CENTER)
+        mainCenter?.add(infoLabel, BorderLayout.CENTER)
         revalidate()
         repaint()
     }
@@ -465,7 +611,7 @@ class PlayByPlayPanel(
             font = font.deriveFont(14f)
             horizontalAlignment = SwingConstants.CENTER
         }
-        add(infoLabel, BorderLayout.CENTER)
+        mainCenter?.add(infoLabel, BorderLayout.CENTER)
         revalidate()
         repaint()
     }
@@ -494,6 +640,7 @@ class PlayByPlayPanel(
      */
     fun dispose() {
         stopAutoRefresh()
+        stopDanmuPolling()
         scope.cancel()
     }
 }

@@ -26,4 +26,13 @@ data class PlayByPlay(
         val playType: String,                // 事件类型
         val participants: List<String> = emptyList()  // 参与球员
     )
+
+    /**
+     * 一条直播吧弹幕（只读展示，不提供发送）
+     */
+    data class Danmu(
+        val orderId: Long,     // 全局递增序号（增量拉取游标）
+        val content: String,   // 弹幕文本
+        val time: String       // 发布时间 "yyyy-MM-dd HH:mm:ss"
+    )
 }
