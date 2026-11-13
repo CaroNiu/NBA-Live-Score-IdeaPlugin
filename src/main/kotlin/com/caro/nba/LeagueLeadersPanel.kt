@@ -191,6 +191,7 @@ class LeagueLeadersPanel : JPanel(BorderLayout()) {
     /** 未来 7 天赛程（按天分组：日期标题 + 场次行；结果缓存供「只看关注球队」切换免重拉） */
     private fun loadSchedule() {
         scheduleLoaded = true
+        UsageTracker.track("schedule")
         scheduleHintLabel.text = "加载中..."
         scope.launch {
             val result = service.upcomingSchedule(days = 7)

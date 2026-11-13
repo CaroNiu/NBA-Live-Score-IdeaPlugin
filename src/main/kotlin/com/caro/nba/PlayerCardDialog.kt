@@ -139,6 +139,33 @@ class PlayerCardDialog(
             tablesPanel.add(sectionTitle("季后赛 · 场均"))
             tablesPanel.add(wrapTable(it))
         }
+        // 赛季逐场得分走势（seasonGames.list 按日期升序取最近 20 场，单系列折线）
+        val seasonGames = data.obj("seasonGames")?.getAsJsonArray("list")
+        if (seasonGames != null && seasonGames.size() > 0) {
+            val rows = seasonGames.mapNotNull { it?.takeIf { e -> e.isJsonObject }?.asJsonObject }
+                .sortedBy { it.str("日期") }
+                .takeLast(20)
+            if (rows.size >= 2) {
+                val values = rows.mapNotNull { it.str("得分").toIntOrNull() }
+                if (values.size >= 2) {
+                    tablesPanel.add(sectionTitle("本季得分走势（最近 ${values.size} 场）"))
+                    val chart = ScoreTrendChart(
+                        values = values,
+                        labels = rows.map { it.str("日期").take(5).substring(5) },  // "MM-dd"
+                        color = JBColor(0x0066CC, 0x4A9EFF),
+                        legendLabel = "单场得分"
+                    )
+                    tablesPanel.add(
+                        JScrollPane(chart).apply {
+                            preferredSize = Dimension(940, 170)
+                            border = JBUI.Borders.empty(2, 12, 6, 12)
+                            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+                        }
+                    )
+                }
+            }
+        }
+
         buildStatTable(data.obj("recent5Games"))?.let {
             tablesPanel.add(sectionTitle("近期比赛"))
             tablesPanel.add(wrapTable(it))

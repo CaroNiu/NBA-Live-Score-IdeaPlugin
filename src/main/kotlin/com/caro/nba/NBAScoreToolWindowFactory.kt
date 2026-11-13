@@ -111,7 +111,10 @@ class NBAScoreMainPanel(project: Project) : JBTabbedPane() {
             }
             TAB_LIVE -> setComponentAt(TAB_LIVE, playByPlayContainer)
             TAB_NEWS -> setComponentAt(TAB_NEWS, newsPanel)  // 面板构造时自动拉取资讯
-            TAB_LEADERS -> setComponentAt(TAB_LEADERS, leadersPanel)  // addNotify 首次显示时自动拉取
+            TAB_LEADERS -> {
+                setComponentAt(TAB_LEADERS, leadersPanel)  // addNotify 首次显示时自动拉取
+                UsageTracker.track("leaders")
+            }
         }
         if (index == TAB_LIVE) {
             showLivePlaceholder()

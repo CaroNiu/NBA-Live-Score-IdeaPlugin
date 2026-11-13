@@ -234,24 +234,32 @@ class NewsPanel : JPanel(BorderLayout(0, 10)) {
         itemsByUrl.clear()
         items.forEach { itemsByUrl[it.url] = it }
 
+        // 防御重排：直播吧推荐流的日期不保证连续（热文穿插），按出现顺序开组会导致
+        // 同一天碎裂成多个组且组间交错——先按日期分组（组内保出现顺序），组按日期降序重排
+        val grouped = LinkedHashMap<String, MutableList<NewsItem>>()
+        for (item in items) grouped.getOrPut(item.date) { mutableListOf() }.add(item)
+        val dateRegex = Regex("""\d{4}-\d{2}-\d{2}""")
+        val sortedGroups = grouped.entries.sortedWith(
+            compareByDescending<Map.Entry<String, List<NewsItem>>> { dateRegex.matches(it.key) }
+                .thenByDescending { it.key }
+        )
+
         listPane.text = if (items.isEmpty()) {
             html {
                 append("<div style=\"color:${hex(META_FG)}; font-size:11pt\">暂无资讯数据，可点击「刷新」重试</div>")
             }
         } else {
             html {
-                var lastDate: String? = null
-                for (item in items) {
-                    if (item.date != lastDate) {
-                        lastDate = item.date
-                        append("<div style=\"color:${hex(HEAD_FG)}; font-size:12pt; font-weight:bold; "
-                                + "margin-top:18; margin-bottom:7\">${esc(dateDisplay(item.date))}</div>")
+                for ((date, groupItems) in sortedGroups) {
+                    append("<div style=\"color:${hex(HEAD_FG)}; font-size:12pt; font-weight:bold; "
+                            + "margin-top:18; margin-bottom:7\">${esc(dateDisplay(date))}</div>")
+                    for (item in groupItems) {
+                        append("<div style=\"background-color:${hex(CARD_BG)}; padding-top:9; padding-bottom:9; "
+                                + "padding-left:12; padding-right:12; margin-bottom:6\">")
+                        append("<a href=\"${escAttr(item.url)}\" style=\"color:${hex(LINK_FG)}; font-size:13pt; "
+                                + "text-decoration:none\">${esc(item.title)}</a>")
+                        append("</div>")
                     }
-                    append("<div style=\"background-color:${hex(CARD_BG)}; padding-top:9; padding-bottom:9; "
-                            + "padding-left:12; padding-right:12; margin-bottom:6\">")
-                    append("<a href=\"${escAttr(item.url)}\" style=\"color:${hex(LINK_FG)}; font-size:13pt; "
-                            + "text-decoration:none\">${esc(item.title)}</a>")
-                    append("</div>")
                 }
             }
         }

@@ -629,7 +629,10 @@ class NBAScorePanel(
     private fun showShareMenu(card: JPanel, game: NBAGame) {
         val menu = javax.swing.JPopupMenu()
         menu.add(javax.swing.JMenuItem("📸 生成分享图").apply {
-            addActionListener { showSharePreview(game) }
+            addActionListener {
+                UsageTracker.track("share")
+                showSharePreview(game)
+            }
         })
         menu.show(card, 20, 20)
     }
@@ -649,6 +652,7 @@ class NBAScorePanel(
 
     /** 球队赛程弹窗（ESPN 赛程，后台协程拉取后 EDT 展示） */
     private fun showTeamSchedule(abbr: String) {
+        UsageTracker.track("teamschedule")
         scope.launch {
             val result = com.caro.nba.service.LeagueLeadersService().teamSchedule(abbr)
             ApplicationManager.getApplication().invokeLater {

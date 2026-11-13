@@ -461,6 +461,7 @@ class GameDetailDialog(
                 val card = com.caro.nba.datasource.impl.Zhibo8LeaderDataSource().playerCard(player.id).getOrNull()
                 SwingUtilities.invokeLater {
                     if (card != null) {
+                        UsageTracker.track("playercard")
                         PlayerCardDialog(project, player.name, card).show()
                     } else {
                         // 兜底：直播吧官方资料页

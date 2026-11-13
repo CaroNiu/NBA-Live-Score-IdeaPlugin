@@ -62,6 +62,8 @@ class PlayByPlayPanel(
     private var danmuVisible = false
     /** 弹幕自动刷新开关（侧栏头部 checkbox，默认开） */
     private var danmuAutoRefreshCheckBox: JCheckBox? = null
+    /** 侧栏头部「最后刷新 HH:mm:ss」（轮询状态可见化） */
+    private var danmuRefreshLabel: JLabel? = null
     private var danmuLoading = false
     /** 已展示的最大 order_id（增量拉取游标） */
     private var lastDanmuOrderId = -1L
@@ -114,7 +116,10 @@ class PlayByPlayPanel(
 
     private fun buildUi() {
         // 顶部工具栏：刷新 + 来源切换 | 比赛状态 | 来源徽标 + 更新时间
-        val toolbar = JPanel(BorderLayout(10, 5))
+        // 两行布局：第一行比分（最重要），第二行控制按钮（避免按钮过多挤压比分）
+        val toolbar = JPanel(BorderLayout(0, 4))
+        val controlRow = JPanel(BorderLayout())
+        toolbar.add(controlRow, BorderLayout.CENTER)
 
         refreshButton = JButton("🔄 刷新").apply {
             addActionListener { loadPlayByPlay(manual = true) }
@@ -155,7 +160,7 @@ class PlayByPlayPanel(
         westBox.add(minusBtn)
         westBox.add(Box.createHorizontalStrut(2))
         westBox.add(plusBtn)
-        toolbar.add(westBox, BorderLayout.WEST)
+        controlRow.add(westBox, BorderLayout.WEST)
 
         val statusLabel = JLabel(when {
             isGameFinished -> "📋 已结束"
@@ -170,7 +175,7 @@ class PlayByPlayPanel(
         }
 
         gameTitleLabel = JLabel("$awayTeamName vs $homeTeamName").apply {
-            font = font.deriveFont(Font.BOLD, 13f)
+            font = font.deriveFont(Font.BOLD, 15f)
             foreground = JBColor.foreground()
         }
         // 「📺 视频直播入口」：官方渠道导流（腾讯本场/CCTV5/咪咕/League Pass），合规边界见 WhereToWatchDialog
@@ -185,13 +190,14 @@ class PlayByPlayPanel(
                 }
             })
         }
-        val centerBox = Box.createHorizontalBox()
-        centerBox.add(statusLabel)
-        centerBox.add(Box.createHorizontalStrut(10))
-        centerBox.add(gameTitleLabel)
-        centerBox.add(Box.createHorizontalStrut(10))
-        centerBox.add(whereToWatchLabel)
-        toolbar.add(centerBox, BorderLayout.CENTER)
+        // 比分行独占第一行（最重要的信息不被控制按钮挤压）
+        val scoreRow = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 10, 2)).apply {
+            isOpaque = false
+            add(statusLabel)
+            add(gameTitleLabel)
+            add(whereToWatchLabel)
+        }
+        toolbar.add(scoreRow, BorderLayout.NORTH)
 
         sourceBadge = JLabel("").apply {
             font = font.deriveFont(10f)
@@ -213,7 +219,7 @@ class PlayByPlayPanel(
             addActionListener { toggleDanmu() }
         }
         eastBox.add(danmuToggleButton)
-        toolbar.add(eastBox, BorderLayout.EAST)
+        controlRow.add(eastBox, BorderLayout.EAST)
 
         add(toolbar, BorderLayout.NORTH)
 
@@ -242,14 +248,21 @@ class PlayByPlayPanel(
                 font = font.deriveFont(Font.BOLD, 12f)
                 foreground = JBColor(0x0066CC, 0x4A9EFF)
             })
-            danmuAutoRefreshCheckBox = JCheckBox("自动刷新", true).apply {
+            danmuAutoRefreshCheckBox = JCheckBox("自动", true).apply {
                 font = font.deriveFont(11f)
                 isOpaque = false
+                toolTipText = "自动刷新（每 30 秒）"
                 addActionListener {
                     if (isSelected) startDanmuPolling() else stopDanmuPolling()
                 }
             }
             add(danmuAutoRefreshCheckBox)
+            // 轮询状态可见化：每次拉取更新，时间不走 = 轮询停了；走了但无新弹幕 = 比赛已结束正常停滞
+            danmuRefreshLabel = JLabel("").apply {
+                font = font.deriveFont(10f)
+                foreground = JBColor.GRAY
+            }
+            add(danmuRefreshLabel)
         }
         val danmuView = JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -366,6 +379,7 @@ class PlayByPlayPanel(
     /** 切换弹幕侧栏显示：开=divider 拉到 55% 并启动轮询；关=推到最右并停止轮询 */
     private fun toggleDanmu() {
         danmuVisible = !danmuVisible
+        if (danmuVisible) UsageTracker.track("danmu")
         danmuToggleButton?.text = if (danmuVisible) "📄 文字直播" else "💬 弹幕"
         val split = findSplitPane() ?: return
         if (danmuVisible) {
@@ -414,14 +428,24 @@ class PlayByPlayPanel(
                 ?: emptyList()
             javax.swing.SwingUtilities.invokeLater {
                 danmuLoading = false
+                danmuRefreshLabel?.text = "最后刷新 " +
+                    java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                 if (fresh.isEmpty()) return@invokeLater
                 lastDanmuOrderId = lastDanmuOrderId.coerceAtLeast(fresh.maxOf { it.orderId })
                 val list = danmuListPanel ?: return@invokeLater
                 // 最新在最上（与文字直播一致）
+                val followed = NBASettingsState.getInstance().followedTeams
                 for (d in fresh.sortedByDescending { it.orderId }) {
+                    // 命中关注球队名的弹幕高亮（绿字 + 🌟 前缀），快速捕捉本队相关讨论
+                    val hit = followed.firstOrNull { d.content.contains(it) }
+                    val body = if (hit != null) {
+                        "🌟<b style='color:#1E7B34'>${escDanmu(d.content)}</b>"
+                    } else {
+                        escDanmu(d.content)
+                    }
                     list.add(
                         JLabel("<html><div style='width:100%'>" +
-                                "<span style='color:gray'>${escDanmu(d.time.takeLast(5))}</span> ${escDanmu(d.content)}" +
+                                "<span style='color:gray'>${escDanmu(d.time.takeLast(5))}</span> $body" +
                                 "</div></html>").apply {
                             font = font.deriveFont(NBASettingsState.getInstance().contentFontSize)
                             putClientProperty("danmuRow", true)
