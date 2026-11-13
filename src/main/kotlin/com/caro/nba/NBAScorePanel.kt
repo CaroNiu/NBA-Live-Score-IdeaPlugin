@@ -720,6 +720,7 @@ class NBAScorePanel(
             game.homeTeam.id,
             game.awayTeam.id,
             buildGameRef(game),
+            game.status,
             onOpenPlayByPlay = { status ->
                 // 详情内点「文字转播」：关闭详情，固定到直播标签页实时观看
                 onPlayByPlayClick?.invoke(game, status, buildGameRef(game))

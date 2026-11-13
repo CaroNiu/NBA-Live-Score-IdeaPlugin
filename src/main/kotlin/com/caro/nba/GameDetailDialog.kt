@@ -32,6 +32,7 @@ class GameDetailDialog(
     private val homeTeamId: String = "",
     private val awayTeamId: String = "",
     private val gameRef: GameRef? = null,
+    private val gameStatus: String = "scheduled",  // 比分列表传入的当前状态（战报按钮判定用）
     private val onOpenPlayByPlay: ((status: String) -> Unit)? = null
 ) : DialogWrapper(project) {
 
@@ -40,7 +41,7 @@ class GameDetailDialog(
     private var mainPanel: JPanel? = null
     private var contentPanel: JPanel? = null
     private var loadingLabel: JLabel? = null
-    private var currentStatus: String = "scheduled"  // 存储比赛状态
+    private var currentStatus: String = gameStatus  // 存储比赛状态（初始=列表快照，详情加载后刷新）
 
     // 转播渠道检测结果（检测线程 → EDT 回填比分区状态行）
     @Volatile private var channelText: String = ""      // 直播吧渠道标注原文（如 "CCTV5 腾讯视频 全美直播"）
@@ -102,15 +103,48 @@ class GameDetailDialog(
         return mainPanel
     }
 
-    // 底部按钮区：文字转播 + 关闭（视频直播入口已在比分区状态行直接展示）
+    // 底部按钮区：战报（已结束）/ 文字转播 + 关闭（视频直播入口已在比分区状态行直接展示）
     override fun createActions(): Array<Action> {
-        val playByPlayAction = object : AbstractAction("📺 文字转播") {
+        val actions = mutableListOf<Action>()
+        if (currentStatus == "finished") {
+            actions += object : AbstractAction("📰 战报") {
+                override fun actionPerformed(e: ActionEvent?) {
+                    UsageTracker.track("zhanbao")
+                    openZhanbao()
+                }
+            }
+        }
+        actions += object : AbstractAction("📺 文字转播") {
             override fun actionPerformed(e: ActionEvent?) {
                 onOpenPlayByPlay?.invoke(currentStatus)
                 close(OK_EXIT_CODE)
             }
         }
-        return arrayOf(playByPlayAction, okAction)
+        actions += okAction
+        return actions.toTypedArray()
+    }
+
+    /**
+     * 打开赛后战报弹窗：元数据 zhanbao_url → news.zhibo8.com 文章（NewsService.fetchZhanbao）。
+     * 拉取/解析失败时提示（未收录战报的比赛常态）。
+     */
+    private fun openZhanbao() {
+        Thread {
+            val result = com.caro.nba.service.NewsService().fetchZhanbao(gameId)
+            SwingUtilities.invokeLater {
+                result.fold(
+                    onSuccess = { article ->
+                        UsageTracker.track("zhanbao_view")
+                        ZhanbaoDialog(project, article).show()
+                    },
+                    onFailure = { error ->
+                        javax.swing.JOptionPane.showMessageDialog(
+                            mainPanel, error.message ?: "战报获取失败", "战报", javax.swing.JOptionPane.INFORMATION_MESSAGE
+                        )
+                    }
+                )
+            }
+        }.apply { isDaemon = true }.start()
     }
 
     private fun showGameDetail(detail: GameDetail, actualSource: DataSource) {

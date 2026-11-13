@@ -136,6 +136,78 @@ class NewsService {
         }
     }
 
+    // ---------------- 赛后战报（直播吧比赛页「战报」tab） ----------------
+
+    /**
+     * 拉取赛后战报文章。链路（2026-11-13 实测）：
+     * 1. 元数据 s.qiumibao.com/json/match/{gameId}.htm 的 `zhanbao_url` 字段
+     *    （如 /nba/2026-11-13/match2143927date2026vnative.htm）
+     * 2. 战报文章页：https://news.zhibo8.com{zhanbao_url}（www/m 域名 404，仅 news 域可达）
+     *
+     * 战报页结构与资讯文章页**不同构**（无 media-time/<div id="app"> 锚点）：
+     * <div class="tzhanbao"> 内 h1 标题 + 时间 + <p> 段落 + <img> 配图（含视频占位）。
+     * 队徽/logo 图（static4style/lq_ 前缀）过滤不入正文。
+     */
+    fun fetchZhanbao(gameId: String): Result<NewsArticle> {
+        return try {
+            // 1. 元数据提取 zhanbao_url（indexOf 分步，避免 raw string 正则的引号歧义）
+            val meta = fetchHtml("https://s.qiumibao.com/json/match/$gameId.htm")
+            com.caro.nba.datasource.DataSourceCommon.debugLog("战报: 元数据大小=${meta.length}")
+            val zKey = "\"zhanbao_url\""
+            val zi = meta.indexOf(zKey)
+            if (zi < 0) return Result.failure(Exception("该比赛暂无战报"))
+            val colon = meta.indexOf(':', zi)
+            val q1 = meta.indexOf('"', colon)
+            val q2 = meta.indexOf('"', q1 + 1)
+            // JSON 里 "/" 转义为 "\/"（python json.load 自动解转义掩盖了这一点），需手动还原
+            val zhanbaoPath = meta.substring(q1 + 1, q2).replace("\\/", "/")
+            com.caro.nba.datasource.DataSourceCommon.debugLog("战报: zhanbao_url=$zhanbaoPath")
+            if (!zhanbaoPath.startsWith("/")) return Result.failure(Exception("该比赛暂无战报"))
+
+            // 2. 战报文章页（仅 news 域可达）
+            val html = fetchHtml("https://news.zhibo8.com$zhanbaoPath")
+            com.caro.nba.datasource.DataSourceCommon.debugLog("战报: 文章大小=${html.length} tzhanbao@${html.indexOf("tzhanbao")} p数=${Regex("<p").findAll(html).count()}")
+
+            val title = Regex("""<h1[^>]*>([\s\S]*?)</h1>""").find(html)
+                ?.groupValues?.get(1)
+                ?.let { TAG_REGEX.replace(it, "").trim() }
+                .takeUnless { it.isNullOrEmpty() } ?: "战报"
+
+            val publishTime = Regex("""(\d{4}-\d{2}-\d{2} \d{2}:\d{2})""").find(html)
+                ?.groupValues?.get(1) ?: ""
+
+            // 正文块：<p> 段落 与 <img> 配图按序捕获（过滤队徽/logo 图）
+            val region = html.substring(html.indexOf("tzhanbao").coerceAtLeast(0))
+            val blocks = mutableListOf<NewsArticle.Block>()
+            for (match in Regex("""<p[^>]*>([\s\S]*?)</p>|<img[^>]*src="([^"]+)""").findAll(region)) {
+                val paragraph = match.groupValues[1]
+                val image = match.groupValues[2]
+                when {
+                    image.isNotEmpty() -> {
+                        val isJunk = image.contains("static4style") || image.contains("/lq_") ||
+                            image.contains("logo") || image.contains("duihui")
+                        if (!isJunk) blocks += NewsArticle.Block(isImage = true, text = "", imageUrl = normalizeImageUrl(image))
+                    }
+                    else -> {
+                        val text = TAG_REGEX.replace(paragraph, "").trim()
+                        if (text.isNotEmpty()) blocks += NewsArticle.Block(isImage = false, text = text)
+                    }
+                }
+            }
+            com.caro.nba.datasource.DataSourceCommon.debugLog("战报: 解析块数=${blocks.size} 段落=${blocks.count { !it.isImage }} 图=${blocks.count { it.isImage }}")
+            if (blocks.none { !it.isImage }) {
+                return Result.failure(Exception("该比赛暂无战报"))
+            }
+            Result.success(NewsArticle(title = title, publishTime = publishTime, blocks = blocks))
+        } catch (e: Exception) {
+            Result.failure(Exception("战报获取失败：${e.message}", e))
+        }
+    }
+
+    /** 协议相对 // 补全 https */
+    private fun normalizeImageUrl(url: String): String =
+        if (url.startsWith("//")) "https:$url" else url
+
     /**
      * 拉取资讯列表（时间倒序，链接去重）
      */
