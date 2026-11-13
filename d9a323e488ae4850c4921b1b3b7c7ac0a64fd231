@@ -1,0 +1,45 @@
+src/main/kotlin/com/caro/nba/UsageTracker.kt
+  be6a0df5a778d18e 1-73
+src/main/kotlin/com/caro/nba/NBAScorePanel.kt
+  be6a0df5a778d18e 632-635,655
+src/main/kotlin/com/caro/nba/ScoreTrendChart.kt
+  be6a0df5a778d18e 14,16-18,21-25,28-51,55,62-63,74-75,80-90,92-93,96-99,102-104,107,111-113,115,119,121-128
+src/main/kotlin/com/caro/nba/LeagueLeadersPanel.kt
+  be6a0df5a778d18e 194
+src/main/resources/META-INF/plugin.xml
+  be6a0df5a778d18e 64-72
+workspace/game-plugin/worker/ping.js
+  be6a0df5a778d18e 1-70
+src/main/kotlin/com/caro/nba/NewsPanel.kt
+  be6a0df5a778d18e 237-246,253-261
+src/main/kotlin/com/caro/nba/PlayerCardDialog.kt
+  be6a0df5a778d18e 142-168
+src/main/kotlin/com/caro/nba/NBAScoreToolWindowFactory.kt
+  be6a0df5a778d18e 114-117
+build.gradle.kts
+  be6a0df5a778d18e 11,39
+src/main/kotlin/com/caro/nba/PlayByPlayPanel.kt
+  be6a0df5a778d18e 65-66,119-122,163,178,193-200,222,251,254,260-265,382,431-432,437,439-445,448
+src/main/kotlin/com/caro/nba/GameDetailDialog.kt
+  be6a0df5a778d18e 464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "d9a323e488ae4850c4921b1b3b7c7ac0a64fd231",
+  "prompts": {
+    "be6a0df5a778d18e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c96563ca-5805-4c77-806c-cfeb4f6f3e83",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "JMS\\caro.niu",
+      "messages": [],
+      "total_additions": 6450,
+      "total_deletions": 6263,
+      "accepted_lines": 3787,
+      "overriden_lines": 0
+    }
+  }
+}
