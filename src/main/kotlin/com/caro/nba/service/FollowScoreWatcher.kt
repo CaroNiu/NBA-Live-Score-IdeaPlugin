@@ -191,6 +191,16 @@ object FollowScoreWatcher {
                         "比赛结束",
                         "最终比分：${game.awayTeam.name} ${game.awayScore}-${game.homeScore} ${game.homeTeam.name}"
                     )
+                    // 战报探测（T5 完赛闭环）：直播吧为该场发布了战报则追加提醒（异步，一次请求）
+                    val finishedGame = game
+                    Thread {
+                        NewsService().fetchZhanbao(finishedGame.gameId).onSuccess { article ->
+                            notifyInfo(
+                                "📝 战报已发布",
+                                "${article.title}——详情页点击「📰 战报」查看"
+                            )
+                        }
+                    }.apply { isDaemon = true }.start()
                 }
             }
 

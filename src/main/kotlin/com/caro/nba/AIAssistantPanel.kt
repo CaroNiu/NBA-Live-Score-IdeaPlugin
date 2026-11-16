@@ -344,6 +344,8 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
     var playByPlaySource: String = "auto"
     /** 文字直播/弹幕正文字号（11~18，工具栏 A-/A+ 调节并持久化） */
     var contentFontSize: Float = 13f
+    /** 文字直播「只看关键球」模式（只显示得分/暂停/节末等关键事件，默认关） */
+    var keyOnlyMode: Boolean = false
 
     // ===== AI 助手配置 =====
     var apiUrl: String = ""
@@ -437,6 +439,7 @@ class NBASettingsState : com.intellij.openapi.components.PersistentStateComponen
         this.ratingPromptShown = state.ratingPromptShown
         this.shareImageTheme = state.shareImageTheme
         this.contentFontSize = state.contentFontSize
+        this.keyOnlyMode = state.keyOnlyMode
         this.scheduleFollowOnly = state.scheduleFollowOnly
         this.shareImageWatermark = state.shareImageWatermark
         this.teamStreakSnapshot = state.teamStreakSnapshot
@@ -547,14 +550,26 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             }
         }, gbc)
 
-        // 开关区
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 3; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        statusBarCheckBox = JCheckBox("状态栏常驻比分（IDE 底部显示关注比赛实时比分，点击唤起工具窗口）", settings.statusBarEnabled).also {
-            panel.add(it, gbc)
+        // 开关区（每行约束全部显式声明，gridx/gridwidth 不靠残留传递——2026-11-13 修复 label 与 field 同格重叠）
+        fun checkboxRow(y: Int, checkbox: JCheckBox) {
+            gbc.gridx = 0; gbc.gridy = y; gbc.gridwidth = GridBagConstraints.REMAINDER
+            gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+            panel.add(checkbox, gbc)
+        }
+        fun labelFieldRow(y: Int, label: String, field: JComponent) {
+            gbc.gridx = 0; gbc.gridy = y; gbc.gridwidth = 1
+            gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+            panel.add(JLabel(label), gbc)
+            gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+            panel.add(field, gbc)
         }
 
+        checkboxRow(2, JCheckBox("状态栏常驻比分（IDE 底部显示关注比赛实时比分，点击唤起工具窗口）", settings.statusBarEnabled).also {
+            statusBarCheckBox = it
+        })
+
         // 显示样式（隐蔽程度）
-        gbc.gridy = 3; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
         panel.add(JLabel("显示样式:"), gbc)
         val displayModes = arrayOf(
             "完整队名（凯尔特人 67-46 雄鹿 · 第三节）",
@@ -571,31 +586,24 @@ class NBASettingsConfigurable : com.intellij.openapi.options.Configurable {
             panel.add(it, gbc)
         }
 
-        gbc.gridy = 4; gbc.gridwidth = 3; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        notifyCheckBox = JCheckBox("比赛通知：开赛 / 进入新一节 / 关键分（分差≤5）/ 完赛", settings.notifyEnabled).also {
-            panel.add(it, gbc)
-        }
-        gbc.gridy = 5
-        scheduleReminderCheckBox = JCheckBox("今日赛程提醒（IDE 打开后推送关注球队今天的比赛及开球时刻，每天一次）", settings.scheduleReminderEnabled).also {
-            panel.add(it, gbc)
-        }
-        gbc.gridy = 6
-        dailyReportCheckBox = JCheckBox("每日战报（晨间推送昨日赛果摘要 + 今日场次数，每天一次）", settings.dailyReportEnabled).also {
-            panel.add(it, gbc)
-        }
-        gbc.gridy = 7
-        pingCheckBox = JCheckBox("匿名统计（默认关闭）：勾选后启动时向开发者统计端点上报插件版本号，不采集任何机器或使用信息", settings.anonymousPing).also {
-            panel.add(it, gbc)
-        }
+        checkboxRow(4, JCheckBox("比赛通知：开赛 / 进入新一节 / 关键分（分差≤5）/ 完赛", settings.notifyEnabled).also {
+            notifyCheckBox = it
+        })
+        checkboxRow(5, JCheckBox("今日赛程提醒（IDE 打开后推送关注球队今天的比赛及开球时刻，每天一次）", settings.scheduleReminderEnabled).also {
+            scheduleReminderCheckBox = it
+        })
+        checkboxRow(6, JCheckBox("每日战报（晨间推送昨日赛果摘要 + 今日场次数，每天一次）", settings.dailyReportEnabled).also {
+            dailyReportCheckBox = it
+        })
+        checkboxRow(7, JCheckBox("匿名统计（默认关闭）：勾选后启动时向开发者统计端点上报插件版本号，不采集任何机器或使用信息", settings.anonymousPing).also {
+            pingCheckBox = it
+        })
 
         // ping URL
-        gbc.gridy = 8; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        panel.add(JLabel("上报地址:"), gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        pingUrlField = JTextField(settings.pingUrl, 40).also {
+        labelFieldRow(8, "上报地址:", JTextField(settings.pingUrl, 40).also {
+            pingUrlField = it
             it.toolTipText = "匿名统计接口完整 URL（部署后填写；插件关闭匿名统计时不请求）"
-            panel.add(it, gbc)
-        }
+        })
 
         // 分享图主题
         gbc.gridx = 0; gbc.gridy = 9; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0

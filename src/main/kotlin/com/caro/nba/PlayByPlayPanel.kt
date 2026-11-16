@@ -540,10 +540,32 @@ class PlayByPlayPanel(
         // 与整页「最新在上」方向相反——同分钟的连续播报（如「第一罚/第二罚/命中」）读起来就是错位的。
         // （ESPN 不出错纯属侥幸：其 clock 是比赛时钟，数字递减，降序恰好等于最新在前）
         // 节标题：period 变化时插入（倒序遍历=新节在前）；period=0 表示未识别节次，不渲染组头
+        // 「只看关键球」模式：过滤普通攻防行，只保留得分/暂停/节末等关键事件
+        val keyOnly = NBASettingsState.getInstance().keyOnlyMode
+
+        // 过滤开关行（置于内容顶部，切换后立即重渲染）
+        val filterRow = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 2)).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(javax.swing.JCheckBox("⚡ 只看关键球（得分/暂停/节末）", keyOnly).apply {
+                font = font.deriveFont(11f)
+                isOpaque = false
+                addActionListener {
+                    NBASettingsState.getInstance().keyOnlyMode = isSelected
+                    showPlayByPlay(pbp, actualSource, isAutoMode)  // 重渲染
+                }
+            })
+        }
+        content.add(filterRow)
+        content.add(Box.createVerticalStrut(4))
+
         var lastPeriod = Int.MIN_VALUE
+        var shownInPeriod = 0  // 关键球模式下该节已展示条数（全被过滤时显示占位提示）
         for (play in pbp.plays.asReversed()) {
+            val category = classifyPlay(play)
             if (play.period > 0 && play.period != lastPeriod) {
                 lastPeriod = play.period
+                shownInPeriod = 0
                 content.add(JLabel("━━━ ${play.periodDisplay.ifEmpty { "第${play.period}节" }} ━━━").apply {
                     font = font.deriveFont(Font.BOLD, 13f)
                     foreground = JBColor(0x0066CC, 0x4A9EFF)
@@ -551,7 +573,9 @@ class PlayByPlayPanel(
                     border = EmptyBorder(10, 0, 10, 0)
                 })
             }
-            content.add(createPlayPanel(play))
+            if (keyOnly && category == PlayCategory.NORMAL) continue
+            shownInPeriod++
+            content.add(createPlayPanel(play, category))
         }
 
         // 更新 scrollPane 内容
@@ -571,12 +595,39 @@ class PlayByPlayPanel(
         }
     }
 
-    private fun createPlayPanel(play: PlayByPlay.Play): JPanel {
+    /** 直播事件分级（T1 过滤 + T2 视觉分级共用） */
+    private enum class PlayCategory { SCORE, PAUSE, END, NORMAL }
+
+    private fun classifyPlay(play: PlayByPlay.Play): PlayCategory {
+        if (play.isScoringPlay) return PlayCategory.SCORE
+        val t = play.text
+        val pd = play.periodDisplay
+        return when {
+            t.contains("暂停") -> PlayCategory.PAUSE
+            t.contains("比赛结束") || t.contains("终场") || pd.contains("结束") -> PlayCategory.END
+            else -> PlayCategory.NORMAL
+        }
+    }
+
+    private fun createPlayPanel(play: PlayByPlay.Play, category: PlayCategory = PlayCategory.NORMAL): JPanel {
         // 高度随内容自适应（长解说换行后超过一行），宽度撑满
         val panel = object : JPanel(BorderLayout(8, 3)) {
             override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
         }.apply {
-            border = BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor(0xEEEEEE, 0x2D2D2D))
+            // T2 视觉分级：得分=浅橙底、暂停=浅蓝底、普通=灰白底+细分隔线
+            background = when (category) {
+                PlayCategory.SCORE -> JBColor(0xFFF3E0, 0x3A2A10)
+                PlayCategory.PAUSE -> JBColor(0xE8F1FB, 0x1F2A38)
+                else -> JBColor.background()
+            }
+            border = BorderFactory.createCompoundBorder(
+                if (category == PlayCategory.SCORE) {
+                    BorderFactory.createMatteBorder(0, 3, 0, 0, JBColor(0xFF6600, 0xFF9933))
+                } else {
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor(0xEEEEEE, 0x2D2D2D))
+                },
+                JBUI.Borders.empty(4, 8, 4, 8)
+            )
         }
 
         // 左侧：时间和比分
@@ -590,7 +641,7 @@ class PlayByPlayPanel(
 
         if (play.isScoringPlay) {
             leftPanel.add(JLabel("${play.awayScore} - ${play.homeScore}").apply {
-                font = font.deriveFont(Font.BOLD, 13f)
+                font = font.deriveFont(Font.BOLD, if (category == PlayCategory.SCORE) 15f else 13f)
                 foreground = JBColor(0xFF6600, 0xFF9933)
             })
         }
