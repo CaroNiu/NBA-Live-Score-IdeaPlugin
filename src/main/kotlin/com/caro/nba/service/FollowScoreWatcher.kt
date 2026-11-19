@@ -43,6 +43,9 @@ object FollowScoreWatcher {
     /** 无进行中比赛时的轮询间隔（等开赛/等关注配置变化） */
     private const val IDLE_INTERVAL_MS = 60_000L
 
+    /** 关注比赛全部完赛后：数据不再变化，降到 5 分钟低频（仅保留通知/状态栏的基本检查） */
+    private const val FINISHED_INTERVAL_MS = 300_000L
+
     /** 订阅者：状态栏 widget 等，回调在 EDT */
     interface Listener {
         fun onFollowedGamesChanged(games: List<NBAGame>)
@@ -148,7 +151,11 @@ object FollowScoreWatcher {
         }
         notifyListeners()
 
-        return if (games.any { it.status == "in_progress" }) ACTIVE_INTERVAL_MS else IDLE_INTERVAL_MS
+        return when {
+            games.any { it.status == "in_progress" } -> ACTIVE_INTERVAL_MS
+            games.isNotEmpty() && games.all { it.status == "finished" } -> FINISHED_INTERVAL_MS
+            else -> IDLE_INTERVAL_MS
+        }
     }
 
     // ---------------- 状态迁移与通知 ----------------

@@ -359,6 +359,7 @@ class PlayByPlayPanel(
         }
         if (gameEnded || isGameFinished) {
             stopAutoRefresh()
+            stopDanmuPolling()  // 比赛结束后弹幕不再增长，停轮询（侧栏保留静态快照）
             return
         }
         if (autoRefreshTimer?.isRunning == true) return
@@ -438,8 +439,11 @@ class PlayByPlayPanel(
                 for (d in fresh.sortedByDescending { it.orderId }) {
                     // 命中关注球队名的弹幕高亮（绿字 + 🌟 前缀），快速捕捉本队相关讨论
                     val hit = followed.firstOrNull { d.content.contains(it) }
+                    val hitGreen = JBColor(0x1E7B34, 0x6FCF8B)
                     val body = if (hit != null) {
-                        "🌟<b style='color:#1E7B34'>${escDanmu(d.content)}</b>"
+                        "🌟<b style='color:#%02X%02X%02X'>${escDanmu(d.content)}</b>".format(
+                            hitGreen.red, hitGreen.green, hitGreen.blue
+                        )
                     } else {
                         escDanmu(d.content)
                     }

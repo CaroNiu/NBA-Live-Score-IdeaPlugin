@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.caro"
-version = "7.1.0"
+version = "7.2.0"
 
 repositories {
     mavenCentral()
@@ -36,7 +36,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         name = "NBA Live Score"
-        version = "7.1.0"
+        version = "7.2.0"
 
         // 适配 IDEA 2024.2 到 2025.3+
         ideaVersion {
@@ -50,6 +50,9 @@ intellijPlatform {
     publishing {
         token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
     }
+
+    // pluginVerification.ides 未配置：与 Kotlin jvmToolchain 存在 languageVersion final 冲突（2.x 已知问题），
+    // internal API 清单改用 Marketplace 云端验证详情获取（Compatibility verification 条目展开）
 }
 
 kotlin {
