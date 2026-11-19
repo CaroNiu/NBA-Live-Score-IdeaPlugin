@@ -534,7 +534,7 @@ class NBAScorePanel(
         gbc.weightx = 1.0
         scorePanel.add(JLabel(game.awayTeam.name).apply {
             font = font.deriveFont(Font.BOLD, 12f)
-            setupTeamNameClick(this, game.awayTeam.abbreviation)
+            setupTeamNameClick(this, game.awayTeam.abbreviation, game.awayTeam.id, game.awayTeam.name)
         }, gbc)
         
         // VS
@@ -550,7 +550,7 @@ class NBAScorePanel(
         gbc.weightx = 1.0
         scorePanel.add(JLabel(game.homeTeam.name).apply {
             font = font.deriveFont(Font.BOLD, 12f)
-            setupTeamNameClick(this, game.homeTeam.abbreviation)
+            setupTeamNameClick(this, game.homeTeam.abbreviation, game.homeTeam.id, game.homeTeam.name)
         }, gbc)
         
         // 客队比分
@@ -637,27 +637,33 @@ class NBAScorePanel(
         menu.show(card, 20, 20)
     }
 
-    /** 队名 label 可点击 → 球队赛程弹窗（consume 阻止冒泡到卡片的「查看详情」） */
-    private fun setupTeamNameClick(label: JLabel, abbr: String) {
+    /** 队名 label 可点击 → 球队信息弹窗（consume 阻止冒泡到卡片的「查看详情」） */
+    private fun setupTeamNameClick(label: JLabel, abbr: String, teamId: String, teamCnName: String) {
         if (abbr.isBlank()) return
         label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        label.toolTipText = "点击查看该队近况与后续赛程"
+        label.toolTipText = "点击查看该队近况、赛程、阵容与伤病"
         label.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent?) {
                 e?.consume()
-                showTeamSchedule(abbr)
+                showTeamSchedule(abbr, teamId, teamCnName)
             }
         })
     }
 
-    /** 球队赛程弹窗（ESPN 赛程，后台协程拉取后 EDT 展示） */
-    private fun showTeamSchedule(abbr: String) {
+    /** 球队信息弹窗（ESPN 赛程 + 直播吧阵容/伤病，后台协程拉取后 EDT 展示） */
+    private fun showTeamSchedule(abbr: String, teamId: String, teamCnName: String) {
         UsageTracker.track("teamschedule")
         scope.launch {
-            val result = com.caro.nba.service.LeagueLeadersService().teamSchedule(abbr)
+            val service = com.caro.nba.service.LeagueLeadersService()
+            val result = service.teamSchedule(abbr)
+            // 阵容/伤病走直播吧 teamId 体系：比分条目 id 缺失时按中文队名反查静态映射兜底
+            val resolvedId = teamId.ifBlank {
+                com.caro.nba.datasource.impl.Zhibo8LeaderDataSource.TEAM_ID_BY_CN_NAME[teamCnName] ?: ""
+            }
+            val info = resolvedId.takeIf { it.isNotBlank() }?.let { service.teamInfo(it).getOrNull() }
             ApplicationManager.getApplication().invokeLater {
                 result.fold(
-                    onSuccess = { TeamScheduleDialog(project, it).show() },
+                    onSuccess = { TeamScheduleDialog(project, it, info).show() },
                     onFailure = { showError("赛程加载失败：ESPN 暂不可达，请稍后重试") }
                 )
             }

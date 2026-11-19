@@ -42,6 +42,43 @@ class Zhibo8LeaderDataSource {
             "抢断" to "场均抢断",
             "盖帽" to "场均盖帽"
         )
+
+        /**
+         * 直播吧 30 队 teamId 静态映射（中文队名 → teamId，2026-11 实测收集自 bifen 比分与数据王榜单，
+         * 队 id 长期稳定）。用于比分条目 teamId 缺失时（如首页赛程补齐的未开赛场次）按中文名反查。
+         */
+        val TEAM_ID_BY_CN_NAME: Map<String, String> = mapOf(
+            "凯尔特人" to "1745",
+            "黄蜂" to "6887",
+            "活塞" to "6888",
+            "奇才" to "6889",
+            "灰熊" to "6890",
+            "爵士" to "6891",
+            "猛龙" to "6892",
+            "国王" to "6895",
+            "开拓者" to "6896",
+            "太阳" to "6897",
+            "76人" to "6898",
+            "步行者" to "6899",
+            "魔术" to "6900",
+            "尼克斯" to "6901",
+            "篮网" to "6902",
+            "森林狼" to "6903",
+            "雄鹿" to "6904",
+            "热火" to "6905",
+            "湖人" to "6906",
+            "快船" to "6907",
+            "火箭" to "6908",
+            "勇士" to "6909",
+            "掘金" to "6910",
+            "独行侠" to "6911",
+            "公牛" to "6912",
+            "鹈鹕" to "6913",
+            "骑士" to "6914",
+            "雷霆" to "6893",
+            "马刺" to "6894",
+            "老鹰" to "6916"
+        )
     }
 
     /** 赛季场均榜（每类取 topN，接口单次返回 100 人，无二次请求） */
@@ -81,7 +118,72 @@ class Zhibo8LeaderDataSource {
         }
     }
 
-    // ---------------- 联赛赛程（直播吧当前赛季赛程，未来 N 天） ----------------
+    // ---------------- 球队信息（阵容/球员数据/伤病名单，直播吧 nba_v2/team） ----------------
+
+    /**
+     * 球队信息全家桶（一个接口全拿，teamId 与比分条目 homeId/guestId 同体系）。
+     * 解析为通用表结构（阵容/球员数据/伤病名单三张表），防御式渲染。
+     * 注意：接口按 teamId 查询（teamName 参数无效）；PHP 偶发 Notice 噪音已防御。
+     */
+    fun teamInfo(teamId: String): Result<com.caro.nba.model.TeamInfo> = runCatching {
+        val request = Request.Builder()
+            .url("https://data.zhibo8.cc/manage/public/app.php?_url=/nba_v2/team&random=${Math.random()}&teamId=$teamId")
+            .header("User-Agent", DataSourceCommon.DEFAULT_USER_AGENT)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://data.zhibo8.cc/nbaData/team/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw Exception("直播吧球队接口失败: ${response.code}")
+            val body = response.body?.string() ?: throw Exception("球队信息响应为空")
+            val cleaned = body.substringAfterLast("<br />")
+            val root = com.google.gson.JsonParser.parseString(cleaned).asJsonObject
+            if (root.get("status")?.takeIf { it.isJsonPrimitive }?.asString != "1") {
+                throw Exception(root.get("mesg")?.asString ?: "球队信息未找到")
+            }
+            val data = root.getAsJsonObject("data") ?: throw Exception("球队信息数据缺失")
+            val team = data.getAsJsonObject("team")
+
+            val sections = mutableListOf<com.caro.nba.model.TableSection>()
+
+            // 阵容表：player.info（items 表头 + list 行对象）
+            (data.getAsJsonObject("player")?.getAsJsonObject("info"))?.let { info ->
+                parseTable(info, "阵容")?.let { sections += it }
+            }
+            // 球员数据表：player.data（赛季数据，裁剪到核心 11 列避免横向过宽）
+            (data.getAsJsonObject("player")?.getAsJsonObject("data"))?.let { tbl ->
+                parseTable(tbl, "球员数据", maxColumns = 11)?.let { sections += it }
+            }
+            // 伤病名单：teamInjuries
+            data.getAsJsonObject("teamInjuries")?.let { inj ->
+                parseTable(inj, "伤病名单")?.let { sections += it }
+            }
+
+            com.caro.nba.model.TeamInfo(
+                teamName = team?.get("teamName")?.takeIf { it.isJsonPrimitive }?.asString ?: "",
+                teamNameEn = team?.get("teamNameEn")?.takeIf { it.isJsonPrimitive }?.asString ?: "",
+                city = team?.get("city")?.takeIf { it.isJsonPrimitive }?.asString ?: "",
+                tableSections = sections
+            )
+        }
+    }
+
+    /** 通用表解析：items（表头数组）+ list（中文键行对象数组）→ 按表头顺序取值；maxColumns 裁剪列数（null=全量）；空表返回 null */
+    private fun parseTable(obj: JsonObject, title: String, maxColumns: Int? = null): com.caro.nba.model.TableSection? {
+        val itemsArr = obj.getAsJsonArray("items") ?: return null
+        val listArr = obj.getAsJsonArray("list") ?: return null
+        if (itemsArr.size() == 0 || listArr.size() == 0) return null
+        val headers = itemsArr.mapNotNull { it?.takeIf { e -> e.isJsonPrimitive }?.asString }
+        val rows = listArr.mapNotNull { e ->
+            val o = e?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            headers.map { h -> o.get(h)?.takeIf { it.isJsonPrimitive }?.asString ?: "" }
+        }
+        if (rows.all { row -> row.all { it.isBlank() } }) return null
+        val cappedHeaders = maxColumns?.let { headers.take(it) } ?: headers
+        val cappedRows = rows.map { row -> row.take(cappedHeaders.size) }
+        return com.caro.nba.model.TableSection(title, cappedHeaders, cappedRows)
+    }
+
+    // ---------------- 今日数据王（直播吧单场统计聚合） ----------------
 
     /**
      * 未来 N 天的联赛赛程。

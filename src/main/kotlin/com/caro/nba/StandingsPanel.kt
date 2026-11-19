@@ -296,12 +296,20 @@ class StandingsPanel(
         }
         teamInfoPanel.add(logoLabel, BorderLayout.WEST)
 
-        // 队名
+        // 队名（可点击 → 球队信息弹窗：赛程/阵容/伤病三件套）
         val teamNameLabel = JLabel().apply {
             val clincherMark = if (team.clincher.isNotEmpty()) " *" else ""
             text = "${team.teamName}$clincherMark"
             font = font.deriveFont(Font.BOLD, 13f)
             foreground = if (isEliminated) JBColor.GRAY else JBColor.foreground()
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            toolTipText = "点击查看该队赛程、阵容与伤病"
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                    UsageTracker.track("teamschedule")
+                    showTeamSchedule(team)
+                }
+            })
         }
         teamInfoPanel.add(teamNameLabel, BorderLayout.CENTER)
 
@@ -446,5 +454,26 @@ class StandingsPanel(
 
     fun dispose() {
         scope.cancel()
+    }
+
+    /** 球队信息弹窗（赛程 + 阵容/伤病，teamId 缺失时按中文队名反查直播吧映射兜底） */
+    private fun showTeamSchedule(team: TeamStanding) {
+        UsageTracker.track("teamschedule")
+        val service = com.caro.nba.service.LeagueLeadersService()
+        scope.launch {
+            val result = service.teamSchedule(team.abbreviation)
+            // 阵容/伤病接口要求直播吧 teamId：静态映射（中文名反查）优先，原始 id 仅兜底
+            val teamId = com.caro.nba.datasource.impl.Zhibo8LeaderDataSource.TEAM_ID_BY_CN_NAME[team.teamName]
+                ?: team.teamId.takeIf { it.isNotBlank() } ?: ""
+            val info = teamId.takeIf { it.isNotBlank() }?.let { service.teamInfo(it).getOrNull() }
+            ApplicationManager.getApplication().invokeLater {
+                result.fold(
+                    onSuccess = { TeamScheduleDialog(project, it, info).show() },
+                    onFailure = { error ->
+                        showError(error.message ?: "赛程加载失败：ESPN 暂不可达，请稍后重试")
+                    }
+                )
+            }
+        }
     }
 }

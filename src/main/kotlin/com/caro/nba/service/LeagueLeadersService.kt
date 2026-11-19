@@ -4,6 +4,7 @@ import com.caro.nba.datasource.impl.EspnStatsDataSource
 import com.caro.nba.datasource.impl.Zhibo8LeaderDataSource
 import com.caro.nba.model.NBATeamSchedule
 import com.caro.nba.model.ScheduleDay
+import com.caro.nba.model.TeamInfo
 import com.caro.nba.model.SeasonLeaders
 import com.caro.nba.model.TodayLeaders
 import java.time.LocalDate
@@ -37,4 +38,7 @@ class LeagueLeadersService {
 
     /** 未来 N 天联赛赛程（直播吧，北京时间口径） */
     fun upcomingSchedule(days: Int = 7): Result<List<ScheduleDay>> = zb8Leaders.upcomingSchedule(days)
+
+    /** 球队信息全家桶（阵容/球员数据/伤病名单，直播吧 teamId 体系） */
+    fun teamInfo(teamId: String): Result<com.caro.nba.model.TeamInfo> = zb8Leaders.teamInfo(teamId)
 }
